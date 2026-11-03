@@ -5,7 +5,7 @@ Two regular enemies for the temple invasion. Both share the protagonist/mentor s
 
 ## Locked constraints — Iron Breaker animation
 
-- Use the **adjusted two-handed** sweep and overhead smash (swing path pulled toward the body, both arms IK'd onto the haft).
+- Use the **adjusted two-handed** three-hit sweep and overhead smash (swing path pulled toward the body, both arms IK'd onto the haft).
 - Preserve the confirmed impact frames and recovery windows (below).
 - Keep the two-handed grip for the whole of every attack, ready pose and recovery.
 - Set hit ranges from the **adjusted, shorter arcs** (about 40% less reach than the original one-handed clip), never from the raw clips.
@@ -47,7 +47,7 @@ Weapons: a blade on each hand; the left blade follows the clips' counter-swing (
 
 | Move | Clip (two-handed adjusted) | Hit(s) | Open from | Recovery |
 |---|---|---|---|---|
-| Two-hit sweep | Sword_Heavy_Combo 0–2.0 s | 1.17 s (rising), 1.83 s (horizontal); 0.50 s low swipe = wind-up, no damage | 1.9 s | blend out to guard |
+| Three-hit sweep | Sword_Heavy_Combo 0–2.0 s | 0.50 s (low swipe), 1.17 s (upswing), 1.83 s (horizontal) — all three deal damage | 1.9 s | blend out to guard |
 | Overhead smash | Sword_Heavy_Combo 2.0–4.3 s (40° wind-up tilt peaking 2.5 s) | 2.63 s (ground impact) | 2.67 s | 1.6 s |
 | Shoulder charge | Shield_Dash + game-driven forward motion (clip travels only 0.4 m) | burst at 0.07 s | — | 1.1 s |
 | Guard / block | Idle_Shield_Loop (two-handed IK) | — | — | — |
