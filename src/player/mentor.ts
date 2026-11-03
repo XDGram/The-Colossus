@@ -422,7 +422,7 @@ export function dressMentor(model: THREE.Object3D, scan?: HeadScan): MentorRig {
       }
       eye.setAttribute('color', new THREE.BufferAttribute(col, 3));
       // Front of the eyeball sits just behind the lid rims (no bulge); centred so the iris looks straight ahead.
-      eye.translate(e.x, e.y - 0.004, e.z - 0.085 - R);
+      eye.translate(e.x, e.y + 0.03, e.z - 0.085 - R);
       eyeGeos.push(eye);
     }
     g.computeVertexNormals();
