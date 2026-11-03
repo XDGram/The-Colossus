@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { mulberry32, fbm, smoothstep } from '../core/noise';
-import { terrainHeight, terrainNormal, terrainMask, streamX, pathX, valleyAxis, PLAY, SITES, POOL, COLOSSUS_POS, STREAM_SOURCE_Z } from './heightfield';
+import { terrainHeight, terrainNormal, streamX, pathX, valleyAxis, PLAY, SITES, POOL, COLOSSUS_POS, STREAM_SOURCE_Z } from './heightfield';
 import type { Colliders } from './colliders';
 
 interface Part { geometry: THREE.BufferGeometry; material: THREE.Material; local: THREE.Matrix4 }
@@ -158,6 +158,7 @@ export class TreeImpostor {
         #ifdef USE_FOG
           vFogWorldPos = wp;
         #endif`);
+      sh.fragmentShader = sh.fragmentShader.replace('#include <color_fragment>', AUTUMN_GLSL);
     };
     m.customProgramCacheKey = () => 'tree-impostor';
     return m;
@@ -175,7 +176,7 @@ export class TreeField {
   private lastKey = '';
   private tmp = new THREE.Matrix4();
 
-  constructor(gltf: GLTF, impostor: TreeImpostor, trees: THREE.Matrix4[], private nearDist: number, private maxFull: number) {
+  constructor(gltf: GLTF, impostor: TreeImpostor, trees: THREE.Matrix4[], private nearDist: number, private maxFull: number, private tints: (THREE.Color | null)[] = []) {
     this.trees = trees;
     this.positions = trees.map((m) => new THREE.Vector3().setFromMatrixPosition(m));
     this.parts = partsOf(gltf);
@@ -190,12 +191,14 @@ export class TreeField {
       im.receiveShadow = true;
       im.count = 0;
       im.frustumCulled = false;
+      if (/leaves/i.test(p.material.name)) im.setColorAt(0, WHITE);
       this.group.add(im);
       return im;
     });
     const quad = new THREE.PlaneGeometry(1, 1).translate(0, 0.5, 0);
     this.impostor = new THREE.InstancedMesh(quad, impostor.material(), trees.length);
     this.impostor.frustumCulled = false;
+    this.impostor.setColorAt(0, WHITE);
     this.group.add(this.impostor);
   }
 
@@ -208,16 +211,33 @@ export class TreeField {
     let nf = 0, ni = 0;
     for (const [d2, i] of order) {
       if (d2 < this.nearDist * this.nearDist && nf < this.maxFull) {
-        for (let k = 0; k < this.parts.length; k++) this.full[k].setMatrixAt(nf, this.tmp.multiplyMatrices(this.trees[i], this.parts[k].local));
+        for (let k = 0; k < this.parts.length; k++) {
+          this.full[k].setMatrixAt(nf, this.tmp.multiplyMatrices(this.trees[i], this.parts[k].local));
+          if (this.full[k].instanceColor) this.full[k].setColorAt(nf, this.tints[i] ?? WHITE);
+        }
         nf++;
-      } else this.impostor.setMatrixAt(ni++, this.trees[i]);
+      } else {
+        this.impostor.setColorAt(ni, this.tints[i] ?? WHITE);
+        this.impostor.setMatrixAt(ni++, this.trees[i]);
+      }
     }
-    for (const f of this.full) { f.count = nf; f.instanceMatrix.needsUpdate = true; }
+    for (const f of this.full) { f.count = nf; f.instanceMatrix.needsUpdate = true; if (f.instanceColor) f.instanceColor.needsUpdate = true; }
     this.impostor.count = ni;
     this.impostor.instanceMatrix.needsUpdate = true;
+    this.impostor.instanceColor!.needsUpdate = true;
   }
 }
 
+const WHITE = new THREE.Color(1, 1, 1);
+/** Recolours foliage by luminance toward the per-instance colour (white = unchanged). */
+const AUTUMN_GLSL = /* glsl */ `
+  #ifdef USE_INSTANCING_COLOR
+    {
+      float lum = dot(diffuseColor.rgb, vec3(0.3, 0.59, 0.11));
+      float amt = step(0.02, abs(vColor.r - vColor.g) + abs(vColor.g - vColor.b));
+      diffuseColor.rgb = mix(diffuseColor.rgb, vColor * lum * 2.6, amt);
+    }
+  #endif`;
 const swayTime = { value: 0 };
 function addLeafSway(mat: THREE.MeshStandardMaterial) {
   mat.onBeforeCompile = (sh) => {
@@ -235,159 +255,11 @@ function addLeafSway(mat: THREE.MeshStandardMaterial) {
           transformed.x += w * 0.035 * h;
           transformed.z += w * 0.025 * h;
         }`);
+    sh.fragmentShader = sh.fragmentShader.replace('#include <color_fragment>', AUTUMN_GLSL);
   };
   mat.customProgramCacheKey = () => 'leaf-sway';
 }
-export function setVegetationTime(t: number) { swayTime.value = t; grassTime.value = t; }
-
-// ---------------------------------------------------------------------------------------------
-// Grass: instanced blades around the camera, regenerated per 8m cell and cached.
-
-const grassTime = { value: 0 };
-const CELL = 8;
-
-export class GrassField {
-  readonly mesh: THREE.Mesh;
-  private geo: THREE.InstancedBufferGeometry;
-  private offset: THREE.InstancedBufferAttribute;
-  private params: THREE.InstancedBufferAttribute;
-  private cache = new Map<string, { o: Float32Array; p: Float32Array }>();
-  private lastCell = '';
-  private radius: number;
-  private density: number;
-  private capacity: number;
-
-  constructor(private blockers: { x: number; z: number; r: number }[], quality: 'high' | 'low') {
-    this.radius = quality === 'high' ? 38 : 26;
-    this.density = quality === 'high' ? 12 : 6;
-    const cells = Math.ceil((Math.PI * (this.radius + CELL) ** 2) / (CELL * CELL));
-    this.capacity = Math.ceil(cells * CELL * CELL * this.density);
-
-    // A tuft of three blades fanned around the instance origin. position.y in [0,1] is the blade
-    // parameter; aBlade.xy carries the blade's yaw offset and lean so one instance reads as a clump.
-    const pos: number[] = [], blades: number[] = [], idx: number[] = [];
-    const ys = [0, 0.35, 0.7, 1];
-    for (let k = 0; k < 3; k++) {
-      const base = pos.length / 3;
-      for (const y of ys) {
-        if (y < 1) pos.push(-0.5, y, 0, 0.5, y, 0); else pos.push(0, 1, 0);
-        const n = y < 1 ? 2 : 1;
-        for (let i = 0; i < n; i++) blades.push((k / 3) * Math.PI * 2 + k * 0.4, 0.18 + k * 0.08, (k - 1) * 0.05);
-      }
-      for (let sgm = 0; sgm < 2; sgm++) { const a = base + sgm * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
-      idx.push(base + 4, base + 5, base + 6);
-    }
-    const blade = new THREE.BufferGeometry();
-    blade.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    blade.setAttribute('normal', new THREE.Float32BufferAttribute(pos.map((_, i) => (i % 3 === 1 ? 1 : 0)), 3));
-    blade.setAttribute('aBlade', new THREE.Float32BufferAttribute(blades, 3));
-    blade.setIndex(idx);
-
-    this.geo = new THREE.InstancedBufferGeometry();
-    this.geo.index = blade.index;
-    this.geo.setAttribute('position', blade.getAttribute('position'));
-    this.geo.setAttribute('normal', blade.getAttribute('normal'));
-    this.geo.setAttribute('aBlade', blade.getAttribute('aBlade'));
-    this.offset = new THREE.InstancedBufferAttribute(new Float32Array(this.capacity * 4), 4).setUsage(THREE.DynamicDrawUsage);
-    this.params = new THREE.InstancedBufferAttribute(new Float32Array(this.capacity * 4), 4).setUsage(THREE.DynamicDrawUsage);
-    this.geo.setAttribute('aOffset', this.offset);
-    this.geo.setAttribute('aParams', this.params);
-    this.geo.instanceCount = 0;
-
-    const mat = new THREE.MeshStandardMaterial({ side: THREE.DoubleSide, roughness: 0.85, metalness: 0 });
-    mat.onBeforeCompile = (sh) => {
-      sh.uniforms.uTime = grassTime;
-      sh.uniforms.uRadius = { value: this.radius };
-      sh.vertexShader = sh.vertexShader
-        .replace('#include <common>', /* glsl */ `#include <common>
-          attribute vec4 aOffset; attribute vec4 aParams; attribute vec3 aBlade;
-          uniform float uTime; uniform float uRadius; varying vec3 vGrassCol;`)
-        .replace('#include <beginnormal_vertex>', /* glsl */ `
-          float gt = position.y;
-          float gAng = aOffset.w + aBlade.x;
-          float gc = cos(gAng), gs = sin(gAng);
-          // Soft, mostly-up normals: grass reads as a lit mass rather than shiny cards.
-          vec3 objectNormal = normalize(vec3(-gs * 0.3, 1.0, gc * 0.3));`)
-        .replace('#include <begin_vertex>', /* glsl */ `
-          float dCam = distance(aOffset.xz, cameraPosition.xz);
-          float fade = 1.0 - smoothstep(uRadius * 0.65, uRadius, dCam);
-          float gh = aParams.x * fade * (1.0 - aBlade.z * 2.0);
-          float gw = aParams.y * (1.0 + smoothstep(8.0, uRadius, dCam) * 1.2);
-          // Wind: travelling gusts across the valley plus per-blade flutter.
-          float gust = sin(dot(aOffset.xz, vec2(0.045, 0.03)) - uTime * 1.05) * 0.5 + 0.5;
-          float wind = gust * gust * 0.6 + sin(uTime * 3.3 + aOffset.x * 1.3 + aBlade.x * 2.0) * 0.08;
-          float lean = aBlade.y + aParams.z;
-          float bend = lean * gt * gt;
-          vec3 bp = vec3(position.x * gw * (1.0 - gt * 0.85), gt * gh * (1.0 - bend * 0.2), bend * gh * 0.6);
-          vec3 transformed = vec3(bp.x * gc - bp.z * gs, bp.y, bp.x * gs + bp.z * gc);
-          transformed.xz += vec2(0.8, 0.45) * wind * gt * gt * gh * 0.45;
-          transformed += aOffset.xyz;
-          vec3 tip = mix(vec3(0.15, 0.17, 0.06), vec3(0.23, 0.2, 0.085), aParams.w);
-          vGrassCol = mix(vec3(0.03, 0.04, 0.015), tip, smoothstep(0.0, 0.9, gt));`);
-      sh.fragmentShader = sh.fragmentShader
-        .replace('#include <common>', '#include <common>\nvarying vec3 vGrassCol;')
-        .replace('#include <color_fragment>', 'diffuseColor.rgb = vGrassCol;')
-        .replace('#include <normal_fragment_begin>', 'float faceDirection = 1.0; vec3 normal = normalize(vNormal); vec3 nonPerturbedNormal = normal;');
-    };
-    mat.customProgramCacheKey = () => 'grass';
-    this.mesh = new THREE.Mesh(this.geo, mat);
-    this.mesh.frustumCulled = false;
-    this.mesh.receiveShadow = true;
-  }
-
-  private cell(cx: number, cz: number) {
-    const key = `${cx},${cz}`;
-    const hit = this.cache.get(key);
-    if (hit) return hit;
-    const rnd = mulberry32((cx * 73856093) ^ (cz * 19349663));
-    const n = Math.round(CELL * CELL * this.density);
-    const o: number[] = [], p: number[] = [];
-    for (let i = 0; i < n; i++) {
-      const x = (cx + rnd()) * CELL, z = (cz + rnd()) * CELL;
-      const [road, wet, macro] = terrainMask(x, z);
-      const sd = Math.abs(x - streamX(z));
-      if (sd < 4.5 && z > POOL.z && z < STREAM_SOURCE_Z) continue;
-      if (Math.hypot(x - POOL.x, (z - POOL.z) * 0.85) < POOL.r * 0.85) continue;
-      // Patchy coverage: dense meadow patches, thinner moss areas, worn road.
-      const patch = smoothstep(0.25, 0.65, macro + fbm(x * 0.06, z * 0.06, 2) * 0.35);
-      const keep = (0.45 + 0.55 * patch) * (1 - road * 0.95) * (1 - wet * 0.5);
-      if (rnd() > keep) continue;
-      if (this.blockers.some((b) => (x - b.x) ** 2 + (z - b.z) ** 2 < b.r * b.r)) continue;
-      const nrm = terrainNormal(x, z, 0.6);
-      if (nrm[1] < 0.8) continue;
-      const y = terrainHeight(x, z) - 0.04;
-      const tall = 0.18 + patch * 0.26 + rnd() * 0.16;
-      o.push(x, y, z, rnd() * Math.PI * 2);
-      p.push(tall, 0.025 + rnd() * 0.02, rnd() * 0.25, rnd());
-    }
-    const entry = { o: new Float32Array(o), p: new Float32Array(p) };
-    this.cache.set(key, entry);
-    if (this.cache.size > 900) this.cache.delete(this.cache.keys().next().value!);
-    return entry;
-  }
-
-  update(cam: THREE.Vector3) {
-    const ccx = Math.floor(cam.x / CELL), ccz = Math.floor(cam.z / CELL);
-    const key = `${ccx},${ccz}`;
-    if (key === this.lastCell) return;
-    this.lastCell = key;
-    const rc = Math.ceil(this.radius / CELL);
-    const O = this.offset.array as Float32Array, P = this.params.array as Float32Array;
-    let count = 0;
-    for (let dz = -rc; dz <= rc; dz++) for (let dx = -rc; dx <= rc; dx++) {
-      if ((dx * dx + dz * dz) * CELL * CELL > (this.radius + CELL) ** 2) continue;
-      const c = this.cell(ccx + dx, ccz + dz);
-      const m = c.o.length / 4;
-      if (count + m > this.capacity) break;
-      O.set(c.o, count * 4);
-      P.set(c.p, count * 4);
-      count += m;
-    }
-    this.geo.instanceCount = count;
-    this.offset.needsUpdate = true;
-    this.params.needsUpdate = true;
-  }
-}
+export function setVegetationTime(t: number) { swayTime.value = t; }
 
 // ---------------------------------------------------------------------------------------------
 // Placement rules for the valley.
@@ -413,15 +285,17 @@ export function placeVegetation(blockers: { x: number; z: number; r: number }[],
   // Valley trees: groves driven by low-frequency noise, kept off the road, stream and ruins.
   const trees: THREE.Matrix4[] = [];
   const treeSpots: { x: number; z: number }[] = [];
-  for (let tries = 0; tries < 6000 && trees.length < 70; tries++) {
+  for (let tries = 0; tries < 9000 && trees.length < 120; tries++) {
     const z = r(PLAY.minZ - 60, PLAY.maxZ + 40);
-    const x = valleyAxis(z) + r(-150, 150);
-    const grove = fbm(x * 0.009 + 7, z * 0.009, 3);
-    if (grove < 0.05 + rnd() * 0.25) continue;
+    const x = valleyAxis(z) + r(-170, 170);
+    // Groves thicken toward the valley edges, keeping the central meadow and the view to the Colossus open.
+    const edge = smoothstep(55, 140, Math.abs(x - valleyAxis(z)));
+    const grove = fbm(x * 0.009 + 7, z * 0.009, 3) + edge * 0.35;
+    if (grove < 0.12 + rnd() * 0.25) continue;
     if (!offRoad(x, z, 9) || !offStream(x, z, 11) || blocked(x, z, 6)) continue;
     const n = terrainNormal(x, z, 1.5);
     if (n[1] < 0.9) continue;
-    if (treeSpots.some((t) => (t.x - x) ** 2 + (t.z - z) ** 2 < 16 * 16)) continue;
+    if (treeSpots.some((t) => (t.x - x) ** 2 + (t.z - z) ** 2 < 12 * 12)) continue;
     const y = terrainHeight(x, z) - 0.25;
     const s = r(2.4, 3.6);
     trees.push(mat(x, y, z, s, r(0, 6.28)));
@@ -448,6 +322,37 @@ export function placeVegetation(blockers: { x: number; z: number; r: number }[],
     if (forest < -0.05 + rnd() * 0.3) continue;
     if (Math.hypot(x - COLOSSUS_POS.x, z - COLOSSUS_POS.z) < 200) continue;
     trees.push(mat(x, y - 0.4, z, r(2.6, 4.2), r(0, 6.28)));
+  }
+
+  // Autumn accents: a few groves turn amber/red, and the landmark tree by the start blazes red.
+  const AMBER = new THREE.Color(1.0, 0.52, 0.16), RED = new THREE.Color(0.9, 0.22, 0.1), GOLD = new THREE.Color(1.0, 0.74, 0.22);
+  const tints: (THREE.Color | null)[] = trees.map((m) => {
+    const p = new THREE.Vector3().setFromMatrixPosition(m);
+    const k = fbm(p.x * 0.004 + 50, p.z * 0.004 - 20, 2);
+    if (k > 0.32) return rnd() < 0.5 ? RED : AMBER;
+    if (k > 0.2 && rnd() < 0.5) return GOLD;
+    return null;
+  });
+  const landmark = treeSpots.length - 1;
+  tints[landmark] = RED;
+  // Distant slopes get a scattering of autumn colour too.
+  for (let i = treeSpots.length; i < trees.length; i++) if (!tints[i] && rnd() < 0.1) tints[i] = rnd() < 0.5 ? AMBER : GOLD;
+
+  // Bushes: thickets along grove edges, around ruins and on the stream banks.
+  const bushes: THREE.Matrix4[] = [];
+  for (let tries = 0; tries < 20000 && bushes.length < 900; tries++) {
+    const z = r(PLAY.minZ - 60, PLAY.maxZ + 60);
+    const x = valleyAxis(z) + r(-200, 200);
+    const nearTree = treeSpots.some((t) => (t.x - x) ** 2 + (t.z - z) ** 2 < 11 * 11);
+    const nearRuin = blockers.some((b) => (x - b.x) ** 2 + (z - b.z) ** 2 < (b.r + 4) ** 2);
+    const sd = Math.abs(x - streamX(z));
+    const edge = Math.abs(x - valleyAxis(z)) > 90;
+    if (!nearTree && !nearRuin && !(sd > 7 && sd < 12) && !(edge && rnd() < 0.3)) continue;
+    if (!offRoad(x, z, 4) || !offStream(x, z, 6.5) || blocked(x, z, 0.8)) continue;
+    const n = terrainNormal(x, z, 1);
+    if (n[1] < 0.8) continue;
+    const s = r(0.9, 2.3);
+    bushes.push(mat(x, terrainHeight(x, z) - 0.2 * s, z, s, r(0, 6.28), n, 0.5));
   }
 
   // Root clusters at the feet of valley trees.
@@ -540,7 +445,7 @@ export function placeVegetation(blockers: { x: number; z: number; r: number }[],
     }
   }
 
-  return { trees, roots, ferns, rockSets, boulders, outcrops, logs, stumps, branches, treeSpots };
+  return { trees, tints, bushes, roots, ferns, rockSets, boulders, outcrops, logs, stumps, branches, treeSpots };
 }
 
 /** Dust and pollen motes drifting in the light around the player. */

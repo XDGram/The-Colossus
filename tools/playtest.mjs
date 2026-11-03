@@ -16,7 +16,7 @@ async function session(fn) {
   p.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') errors.push(m.text()); });
   p.on('pageerror', (e) => errors.push('PAGEERROR ' + e.message));
   const t0 = Date.now();
-  await p.goto(`http://localhost:5173/?debug&quality=${quality}`);
+  await p.goto(`http://localhost:5173/?debug&quality=${quality}${process.env.QS || ''}`);
   await p.waitForFunction(() => window.__tlc?.ready || /wrong/.test(document.getElementById('status')?.textContent || ''), null, { timeout: 900000, polling: 1000 });
   const load = ((Date.now() - t0) / 1000).toFixed(1);
   if (!(await p.evaluate(() => !!window.__tlc))) { console.log('FAILED', errors.join('\n')); process.exit(1); }

@@ -77,7 +77,7 @@ export function installFogChunks(sunDir: THREE.Vector3, sunFogColor: THREE.Color
     float optical = density * exp( -falloff * camH ) * dist * heightTerm + dist * ${FOG.haze.toFixed(6)};
     float f = 1.0 - exp( -optical );
     float sunAmt = pow( max( dot( dir, ${v3(sunDir)} ), 0.0 ), 8.0 );
-    vec3 fc = mix( fogColor, ${c3(sunFogColor)}, sunAmt * 0.5 );
+    vec3 fc = mix( fogColor, ${c3(sunFogColor)}, sunAmt * 0.35 );
     return mix( col, fc, f );
   }
 #endif`;
@@ -145,7 +145,7 @@ export async function loadAtmosphere(renderer: THREE.WebGLRenderer, url: string,
   const rotY = TARGET_SUN_AZIMUTH - azH;
   const el = Math.asin(THREE.MathUtils.clamp(sunDirH.y, -1, 1));
   // Clamp elevation into a cinematic range (long but not grazing shadows).
-  const elC = THREE.MathUtils.clamp(el, THREE.MathUtils.degToRad(18), THREE.MathUtils.degToRad(38));
+  const elC = THREE.MathUtils.clamp(el, THREE.MathUtils.degToRad(26), THREE.MathUtils.degToRad(40));
   const sunDir = new THREE.Vector3(Math.cos(elC) * Math.cos(TARGET_SUN_AZIMUTH), Math.sin(elC), Math.cos(elC) * Math.sin(TARGET_SUN_AZIMUTH));
 
   // Horizon colour away from the sun drives the fog; horizon colour toward the sun drives in-scatter.
@@ -163,6 +163,13 @@ export async function loadAtmosphere(renderer: THREE.WebGLRenderer, url: string,
   fogColor.multiplyScalar(1 / Math.max(1, nf));
   sunFog.multiplyScalar(1 / Math.max(1, ns));
 
+  // Clamp the sun disk: raw clear-sky HDRIs exceed half-float range during PMREM filtering (Inf -> NaN).
+  // The direct sun is supplied by the DirectionalLight, so nothing is lost.
+  for (let i = 0; i < data.length; i += 4) {
+    const L = luminance(data[i], data[i + 1], data[i + 2]);
+    if (L > 60) { const k = 60 / L; data[i] *= k; data[i + 1] *= k; data[i + 2] *= k; }
+  }
+  tex.needsUpdate = true;
   tex.mapping = THREE.EquirectangularReflectionMapping;
   const pmrem = new THREE.PMREMGenerator(renderer);
   const env = pmrem.fromEquirectangular(tex).texture;

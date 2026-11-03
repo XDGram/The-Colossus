@@ -145,7 +145,7 @@ function makeTerrainMaterial(tex: Record<string, TextureSet>, quality: 'high' | 
           // Large-scale variation sampled at a much lower frequency to kill repetition.
           vec3 far = texture2D(tMossC, uvF).rgb;
           float macro = vMask.z;
-          float grassW = hb(smoothstep(0.35, 0.75, macro), gA.b);
+          float grassW = hb(smoothstep(0.2, 0.6, macro), gA.b);
           vec3 col = mix(mC, gC * vec3(0.92, 0.95, 0.85), grassW);
           float rough = mix(mA.g, gA.g, grassW); float ao = mix(mA.r, gA.r, grassW);
           vec3 nT = mix(nrm(tMossN, uvM), nrm(tGrassN, uvG), grassW);
@@ -157,7 +157,7 @@ function makeTerrainMaterial(tex: Record<string, TextureSet>, quality: 'high' | 
           col *= mix(1.0, 0.68, wet);
           rough = mix(rough, 0.35, wet * 0.5);
           col *= mix(vec3(1.0), far * 2.0, 0.45);
-          col *= 0.8;
+          col *= vec3(0.78, 0.86, 0.6);
           // Steep slopes: triplanar layered rock.
           float slope = 1.0 - wn.y;
           float rockW = smoothstep(0.3, 0.5, slope + (texture2D(tRockA, wp.xz * 0.05).b - 0.5) * 0.18);
@@ -188,7 +188,7 @@ function makeTerrainMaterial(tex: Record<string, TextureSet>, quality: 'high' | 
           tAlbedo = col; tRough = rough; tAO = ao;
           diffuseColor.rgb = tAlbedo;
         }`)
-      .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = clamp(tRough * 1.1, 0.72, 1.0);')
+      .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = clamp(tRough * 1.2, 0.9, 1.0);')
       .replace('#include <normal_fragment_maps>', 'normal = normalize((viewMatrix * vec4(tNormalW, 0.0)).xyz);')
       .replace('#include <aomap_fragment>', /* glsl */ `
         float ambientOcclusion = mix(1.0, tAO, 0.85);

@@ -7,10 +7,12 @@ import { Water } from './world/water';
 import { Colliders } from './world/colliders';
 import { Ruins } from './world/ruins';
 import { Colossus } from './world/colossus';
-import { ScatterLayer, TreeImpostor, TreeField, GrassField, Motes, partsOf, placeVegetation, setVegetationTime } from './world/vegetation';
+import { ScatterLayer, TreeImpostor, TreeField, Motes, partsOf, placeVegetation, setVegetationTime } from './world/vegetation';
 import { Player } from './player/player';
+import { Post } from './core/post';
+import { CardField, crossedCards, flowerCard, grassGenerator, flowerGenerator, bushGeometry, Birds, setFoliageTime } from './world/foliage';
 import { ThirdPersonCamera } from './player/camera';
-import { PLAY, COLOSSUS_POS, terrainHeight } from './world/heightfield';
+import { PLAY, COLOSSUS_POS, SITES, terrainHeight } from './world/heightfield';
 
 type Quality = 'high' | 'low';
 const params = new URLSearchParams(location.search);
@@ -33,8 +35,9 @@ async function main() {
   renderer.setSize(innerWidth, innerHeight);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 0.78;
+  renderer.toneMappingExposure = 0.95;
   renderer.shadowMap.enabled = true;
+  renderer.info.autoReset = false;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   document.getElementById('app')!.appendChild(renderer.domElement);
 
@@ -50,9 +53,9 @@ async function main() {
   ui.status.textContent = 'Gathering the sky';
   const atmo = await loadAtmosphere(renderer, `${import.meta.env.BASE_URL}assets/hdri/sky_2k.hdr`, (p) => { pHdr = p; progress(); });
   pHdr = 1; progress();
-  // The misty sky's horizon is near-white; pull fog down so distance reads as soft blue-grey depth, not milk.
-  atmo.fogColor.multiplyScalar(0.62);
-  const sunFog = atmo.fogColor.clone().lerp(new THREE.Color(1.0, 0.86, 0.66), 0.55).multiplyScalar(1.25);
+  // Clear-day aerial perspective: soft sky-blue haze, warming toward the sun.
+  atmo.fogColor.lerp(new THREE.Color(0.55, 0.68, 0.86), 0.35).multiplyScalar(0.85);
+  const sunFog = atmo.fogColor.clone().lerp(new THREE.Color(1.0, 0.84, 0.62), 0.5);
   installFogChunks(atmo.sunDir, sunFog, atmo.fogColor);
 
   ui.status.textContent = 'Unearthing the valley';
@@ -65,18 +68,27 @@ async function main() {
     ],
     ['ground037', 'grass004', 'ground067', 'rock051', 'rock030', 'rock064', 'bark014'],
   );
+  const texLoader = new THREE.TextureLoader();
+  const foliageTex = async (f: string) => {
+    const t = await texLoader.loadAsync(`${import.meta.env.BASE_URL}assets/textures/foliage/${f}`);
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.anisotropy = 4;
+    return t;
+  };
+  const [grassAtlas, flowerAtlas] = await Promise.all([foliageTex('grass_atlas.webp'), foliageTex('flowers.webp')]);
 
   // ---- sky & light ----
   scene.background = atmo.background;
   scene.backgroundRotation.set(0, atmo.backgroundRotationY, 0);
-  scene.backgroundIntensity = 0.85;
+  scene.backgroundIntensity = 0.95;
   scene.environment = atmo.envMap;
   scene.environmentRotation.set(0, atmo.backgroundRotationY, 0);
-  scene.environmentIntensity = 0.6;
+  scene.environmentIntensity = 0.55;
   scene.fog = new THREE.FogExp2(atmo.fogColor.getHex(), FOG.density);
   (scene.fog as THREE.FogExp2).color.copy(atmo.fogColor);
 
-  const sun = new THREE.DirectionalLight(atmo.sunColor.clone().lerp(new THREE.Color(1, 0.88, 0.72), 0.35), 3.6);
+  // Warm key light; the sky supplies cool blue fill in the shadows.
+  const sun = new THREE.DirectionalLight(atmo.sunColor.clone().lerp(new THREE.Color(1, 0.84, 0.64), 0.5), 4.4);
   sun.castShadow = true;
   const SH = quality === 'high' ? 70 : 50;
   sun.shadow.mapSize.setScalar(quality === 'high' ? 4096 : 2048);
@@ -109,7 +121,7 @@ async function main() {
   sun.target.position.set(0, 0, 0);
   const impostor = new TreeImpostor(renderer, assets.models.tree_hero, sun, atmo.envMap);
   const veg = placeVegetation(ruins.footprints, colliders);
-  const trees = new TreeField(assets.models.tree_hero, impostor, [...veg.trees, ...colossus.backTreeSpots], quality === 'high' ? 95 : 60, quality === 'high' ? 10 : 5);
+  const trees = new TreeField(assets.models.tree_hero, impostor, [...veg.trees, ...colossus.backTreeSpots], quality === 'high' ? 95 : 60, quality === 'high' ? 10 : 5, veg.tints);
   scene.add(trees.group);
   const layers: ScatterLayer[] = [];
   const layer = (model: string, nLods: number, mats: THREE.Matrix4[], maxDist: number, lodDist: number[], castShadow = false, chunk = 40) => {
@@ -137,8 +149,25 @@ async function main() {
       if (/boulder|rock_moss|root_cluster|stump|trunk/.test(name)) harmonise(mat, /boulder/.test(name) ? 0.55 : 0.3);
     }
   });
-  const grass = new GrassField(ruins.footprints, quality);
-  scene.add(grass.mesh);
+  // Bushes: built from the tree's own leaf cards, two LODs.
+  {
+    let leafMat: THREE.MeshStandardMaterial | null = null;
+    assets.models.tree_hero.scene.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh && /leaves/i.test((m.material as THREE.Material).name)) leafMat = m.material as THREE.MeshStandardMaterial; });
+    const bushMat = (leafMat as unknown as THREE.MeshStandardMaterial).clone();
+    bushMat.onBeforeCompile = () => {};
+    bushMat.color = new THREE.Color(0.78, 0.86, 0.66);
+    const id = new THREE.Matrix4();
+    const lod = (q: number) => [{ geometry: bushGeometry(assets.models.tree_hero, q, 11), material: bushMat, local: id }];
+    const l = new ScatterLayer([lod(hq ? 700 : 420), lod(160)], veg.bushes, { maxDist: hq ? 260 : 160, lodDist: [hq ? 40 : 22], castShadow: true, chunk: 40 });
+    layers.push(l);
+    scene.add(l.group);
+  }
+  const foliageOpts = { sunDir: atmo.sunDir, sunColor: sun.color, alphaToCoverage: false };
+  const grass = new CardField(crossedCards(2), { ...foliageOpts, map: grassAtlas, slots: 4, radius: hq ? 60 : 38, density: hq ? 3.2 : 1.8, gen: grassGenerator(ruins.footprints), key: 'grass', wind: 0.35 });
+  const flowers = new CardField(flowerCard(), { ...foliageOpts, map: flowerAtlas, slots: 4, radius: hq ? 45 : 28, density: hq ? 0.9 : 0.5, gen: flowerGenerator(ruins.footprints), key: 'flowers', wind: 0.12 });
+  scene.add(grass.mesh, flowers.mesh);
+  const birds = new Birds([{ x: COLOSSUS_POS.x, z: COLOSSUS_POS.z + 120, y: 230 }, { x: SITES.terrace.x, z: SITES.terrace.z, y: 70 }, { x: SITES.gate.x, z: SITES.gate.z - 80, y: 85 }]);
+  scene.add(birds.mesh);
   const motes = new Motes();
   scene.add(motes.points);
 
@@ -161,7 +190,9 @@ async function main() {
     trees.update(cp);
     for (const l of layers) l.update(cp);
     grass.update(cp);
+    flowers.update(cp);
   };
+  const post = new Post(renderer, scene, camera, quality);
   tpc.update(0.016, input, player.position, 0);
   updateWorld(0);
   await renderer.compileAsync(scene, camera);
@@ -195,6 +226,7 @@ async function main() {
     camera.aspect = innerWidth / innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(innerWidth, innerHeight);
+    post.resize(innerWidth, innerHeight);
   });
 
   const clock = new THREE.Clock();
@@ -213,6 +245,8 @@ async function main() {
     colossus.update(t);
     water.update(t);
     setVegetationTime(t);
+    setFoliageTime(t);
+    birds.update(t);
     motes.update(t, player.position);
     updateWorld(t);
     // Shadow frustum follows the player, snapped to texels to prevent shimmering.
@@ -225,7 +259,8 @@ async function main() {
     const dt = Math.min(clock.getDelta(), 1 / 20);
     if (!paused) {
       update(dt);
-      renderer.render(scene, camera);
+      renderer.info.reset();
+      post.render();
     }
     frames++; fpsTime += dt;
     if (fpsTime > 0.5) {
@@ -241,7 +276,7 @@ async function main() {
   // Hooks used by automated playtests and screenshot capture.
   Object.assign(window, {
     __tlc: {
-      ready: true, stats, start, player, tpc, input, renderer, scene, camera,
+      ready: true, stats, start, player, tpc, input, renderer, scene, camera, post,
       pause: (p: boolean) => { paused = p; renderer.domElement.style.visibility = p ? 'hidden' : 'visible'; },
       /** Deterministic capture for automated tests: simulate n frames, render once, return a JPEG data URL. */
       step: (n: number, dt = 1 / 30, capture = true) => {
@@ -249,7 +284,8 @@ async function main() {
         if (!capture) return { url: '', ms: 0 };
         for (let i = 0; i < 40; i++) updateWorld(t);
         const t0 = performance.now();
-        renderer.render(scene, camera);
+        renderer.info.reset();
+        post.render();
         renderer.getContext().finish();
         stats.calls = renderer.info.render.calls; stats.tris = renderer.info.render.triangles;
         return { url: renderer.domElement.toDataURL('image/jpeg', 0.92), ms: performance.now() - t0 };

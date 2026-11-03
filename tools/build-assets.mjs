@@ -240,6 +240,6 @@ for (const t of ['Ground037', 'Grass004', 'Ground067', 'Rock051', 'Rock030', 'Ro
 
 if (want('hdri')) {
   fs.mkdirSync(path.join(OUT, 'hdri'), { recursive: true });
-  fs.copyFileSync(path.join(SRC, 'polyhaven/hdri/kloofendal_28d_misty_puresky_2k.hdr'), path.join(OUT, 'hdri/sky_2k.hdr'));
+  fs.copyFileSync(path.join(SRC, 'polyhaven/hdri/qwantani_late_afternoon_puresky.hdr'), path.join(OUT, 'hdri/sky_2k.hdr'));
   console.log('hdri/sky_2k.hdr');
 }
