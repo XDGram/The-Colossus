@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js';
-import { adjustTwoHand, captureHands, type AdjustInfo } from './twohand';
+import { adjustTwoHand, captureHands, smashTilt, DBG, type AdjustInfo } from './twohand';
 
 const W = 640, H = 800;
 const r = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
@@ -30,10 +30,10 @@ const metal = new THREE.MeshStandardMaterial({ color: 0xc8ccd0, metalness: 0.8, 
 const wood = new THREE.MeshStandardMaterial({ color: 0x3d2e22, roughness: 0.8 });
 const iron = new THREE.MeshStandardMaterial({ color: 0x3a3a3c, metalness: 0.5, roughness: 0.6 });
 
-type Rig = { adj?: (()=>AdjustInfo); model: THREE.Object3D; mixer: THREE.AnimationMixer; bones: Record<string, THREE.Bone>; tips: { side: 'l' | 'r'; tip: THREE.Object3D }[]; haft?: [THREE.Object3D, THREE.Object3D] };
+type Rig = { adj?: ((clip: string, t: number)=>AdjustInfo); model: THREE.Object3D; mixer: THREE.AnimationMixer; bones: Record<string, THREE.Bone>; tips: { side: 'l' | 'r'; tip: THREE.Object3D }[]; haft?: [THREE.Object3D, THREE.Object3D] };
 function makeRig(src: THREE.Object3D, kind: 'runner' | 'breaker'): Rig {
   const model = clone(src); scene.add(model);
-  if (kind === 'breaker') model.scale.set(1.18, 1.12, 1.18);
+  if (kind === 'breaker') model.scale.setScalar(1.15); // uniform: non-uniform scale breaks arm IK lengths
   model.updateMatrixWorld(true);
   const bones: Record<string, THREE.Bone> = {};
   model.traverse((o) => { if ((o as THREE.Bone).isBone) bones[o.name] = o as THREE.Bone; if ((o as THREE.Mesh).isMesh) (o as THREE.Mesh).frustumCulled = false; });
@@ -71,7 +71,7 @@ function makeRig(src: THREE.Object3D, kind: 'runner' | 'breaker'): Rig {
     const a = new THREE.Object3D(); a.position.y = -0.2; const b = new THREE.Object3D(); b.position.y = 0.55;
     g.add(haft, head, tip, a, b); tips.push({ side: 'r', tip });
     const rigAdj = { bones, mount: g, tipLen: 1.5, pommelLen: 0.22, clubR: 0.075, spacing: 0.17 };
-    return { model, mixer: new THREE.AnimationMixer(model), bones, tips, haft: [a, b], adj: () => adjustTwoHand(rigAdj, hands), hands } as any;
+    return { model, mixer: new THREE.AnimationMixer(model), bones, tips, haft: [a, b], adj: (clip: string, t: number) => adjustTwoHand(rigAdj, hands, 0, (globalThis as any).__noTilt ? 0 : smashTilt(clip, t)), hands } as any;
   }
   return { model, mixer: new THREE.AnimationMixer(model), bones, tips };
 }
@@ -81,7 +81,7 @@ function pose(rig: Rig, clip: string, t: number) {
   rig.mixer.stopAllAction();
   const a = rig.mixer.clipAction(clipNamed(clip)); a.play(); rig.mixer.setTime(t);
   rig.model.updateMatrixWorld(true);
-  lastAdj = rig.adj && !(globalThis as any).__orig ? rig.adj() : null;
+  lastAdj = rig.adj && !(globalThis as any).__orig ? rig.adj(clip, t) : null;
 }
 let lastAdj: AdjustInfo | null = null;
 { const q = new URLSearchParams(location.search); if (q.has('orig')) (globalThis as any).__orig = true; }
@@ -106,7 +106,7 @@ const show = (which: string) => { rigs.runner.model.visible = which === 'runner'
     }
     if (rig.haft) {
       const A = new THREE.Vector3().setFromMatrixPosition(rig.haft[0].matrixWorld), B = new THREE.Vector3().setFromMatrixPosition(rig.haft[1].matrixWorld);
-      const hl = rig.bones['hand_l']; const L = new THREE.Vector3().setFromMatrixPosition(hl.matrixWorld).add((rig as any).hands.l.off.clone().applyQuaternion(hl.getWorldQuaternion(new THREE.Quaternion())));
+      const hl = rig.bones['hand_l']; const L = hl.localToWorld((rig as any).hands.l.off.clone());
       const line = new THREE.Line3(A.clone().lerp(B, -0.1), B), q = new THREE.Vector3(); line.closestPointToPoint(L, true, q);
       row.lgap = +L.distanceTo(q).toFixed(2);
       // Can the left arm reach a grip 15-30 cm below the right hand? (shoulder-to-grip vs arm length)
@@ -121,4 +121,5 @@ const show = (which: string) => { rigs.runner.model.visible = which === 'runner'
   }
   return out;
 };
+(window as any).dbg = (t: number) => { pose(rigs.breaker, 'Sword_Heavy_Combo', t); return JSON.parse(JSON.stringify({ DBG, lastAdj })); };
 document.title = 'ready';
