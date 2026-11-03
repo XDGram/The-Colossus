@@ -62,3 +62,18 @@ Weapons: a blade on each hand; the left blade follows the clips' counter-swing (
 
 7 clips, all hand-keyed as bone poses layered on the shared skeleton:
 Runner — ready stance, spin cut, side-step, Death B. Breaker — ground stamp, knee-drop stagger, Death B.
+
+## Implementation (phase 1, `src/enemies/`)
+
+| File | Contents |
+|---|---|
+| `kit.ts` | Faction palette, geometry helpers, bone-attached part assembly, outfit recolour, weapon hand mounts |
+| `runner.ts` / `breaker.ts` | Dressing: armour, masks, helmet, cloth, blades / club |
+| `ik.ts` | Arm and leg IK, hand grip calibration, pelvis drop with planted feet |
+| `twohand.ts` | Game re-implementation of the two-handed club grip (pull-in, body/ground checks, haft slide) |
+| `custom.ts` | The seven custom animations (procedural layers) plus charge drive and smash tilt |
+| `moves.ts` | Move table (clips, hits, open/recovery windows, measured reach) |
+| `enemy.ts` | `Enemy`: playback with cross-fades, layers, club stances (carry / guard / lean) |
+| `showcase.ts` | Temple dev showcase (`?scene=temple&enemies`), no AI |
+
+Runtime asset: `public/assets/models/enemies.glb` (Peasant body + 27 clips). The Breaker uses `ranger.glb`'s body.

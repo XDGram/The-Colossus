@@ -252,6 +252,40 @@ if (want('mentor')) {
   await sharp(path.join(H, 'Infinite-Level_02_Tangent_SmoothUV.jpg')).resize(1024, 1024).webp({ quality: 90 }).toFile(path.join(HO, 'normal.webp'));
 }
 
+// Enemies (temple invasion): one file carrying the Peasant body (Ash Runner) and every clip both enemies use,
+// from UAL1 and UAL2 (same 65-bone skeleton). The Iron Breaker reuses ranger.glb's body with these clips.
+if (want('enemies')) {
+  const Q = path.join(SRC, 'quaternius');
+  const char = await io.read(path.join(Q, 'outfits/Modular Character Outfits - Fantasy[Standard]/Exports/glTF (Godot-Unreal)/Outfits/Male_Peasant.gltf'));
+  const libs = [
+    [path.join(Q, 'ual/Universal Animation Library[Standard]/Unreal-Godot/UAL1_Standard.glb'), ['Idle_Loop', 'Walk_Loop', 'Jog_Fwd_Loop', 'Sprint_Loop', 'Sword_Idle', 'Roll', 'Hit_Chest', 'Hit_Head', 'Death01']],
+    [path.join(Q, 'ual2/UAL2_Standard.glb'), ['Sword_Regular_A', 'Sword_Regular_A_Rec', 'Sword_Regular_B', 'Sword_Regular_B_Rec', 'Sword_Regular_C', 'Sword_Regular_Combo',
+      'Sword_Dash', 'Melee_Hook', 'Melee_Hook_Rec', 'Sword_Block', 'NinjaJump_Start', 'NinjaJump_Land', 'Hit_Knockback', 'LayToIdle',
+      'Sword_Heavy_Combo', 'Shield_Dash', 'Idle_Shield_Loop', 'Idle_Shield_Break']],
+  ];
+  const byName = new Map(char.getRoot().listNodes().map((n) => [n.getName(), n]));
+  for (const [file, keep] of libs) {
+    const anim = await io.read(file);
+    for (const a of anim.getRoot().listAnimations()) {
+      if (!keep.includes(a.getName())) continue;
+      const na = char.createAnimation(a.getName());
+      for (const ch of a.listChannels()) {
+        const target = byName.get(ch.getTargetNode()?.getName()); if (!target) continue;
+        const s = ch.getSampler();
+        const cp = (acc) => char.createAccessor().setType(acc.getType()).setArray(acc.getArray().slice());
+        const ns = char.createAnimationSampler().setInput(cp(s.getInput())).setOutput(cp(s.getOutput())).setInterpolation(s.getInterpolation());
+        na.addSampler(ns).addChannel(char.createAnimationChannel().setTargetNode(target).setTargetPath(ch.getTargetPath()).setSampler(ns));
+      }
+    }
+  }
+  const buf = char.getRoot().listBuffers()[0];
+  for (const acc of char.getRoot().listAccessors()) acc.setBuffer(buf);
+  await char.transform(dedup(), resample(), textureCompress({ encoder: sharp, targetFormat: 'webp', resize: [1024, 1024], quality: 85 }), prune());
+  const out = path.join(OUT, 'models', 'enemies.glb');
+  await io.write(out, char);
+  console.log(`enemies.glb  ${(fs.statSync(out).size / 1024).toFixed(0)} KB, ${char.getRoot().listAnimations().length} clips`);
+}
+
 // PBR texture sets for terrain, ruins and the Colossus.
 async function texSet(id, size = 1024) {
   if (!want(id)) return;

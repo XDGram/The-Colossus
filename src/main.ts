@@ -299,6 +299,14 @@ async function main() {
     mentor.place(mx, my, mz, -0.12, colliders);
     scene.add(mentor.object);
   }
+  // Development showcase of the invaders (temple only, ?enemies): no AI or combat.
+  let enemyShowcase: import('./enemies/showcase').EnemyShowcase | null = null;
+  if (sceneName === 'temple' && params.has('enemies')) {
+    const { EnemyShowcase } = await import('./enemies/showcase');
+    enemyShowcase = await EnemyShowcase.create(scene, import.meta.env.BASE_URL, (x, z) => ground.height(x, z), [
+      { x: startPos.x - 1.2, z: startPos.z + 5.0, yaw: Math.PI }, { x: startPos.x + 2.4, z: startPos.z + 5.6, yaw: Math.PI },
+    ]);
+  }
 
   ui.status.textContent = 'Preparing shaders';
   await frame();
@@ -357,6 +365,7 @@ async function main() {
     t += dt;
     player.update(dt, input, tpc.yaw, started);
     mentor?.update(dt);
+    enemyShowcase?.update(dt);
     if (debugCam) { camera.position.fromArray(debugCam[0]); camera.lookAt(...debugCam[1]); }
     else tpc.update(dt, input, player.position, Math.hypot(player.velocity.x, player.velocity.z));
     setVegetationTime(t);
@@ -390,7 +399,7 @@ async function main() {
   // Hooks used by automated playtests and screenshot capture.
   Object.assign(window, {
     __tlc: {
-      ready: true, stats, start, player, mentor, tpc, input, renderer, scene, camera, post,
+      ready: true, stats, start, player, mentor, enemies: () => enemyShowcase, tpc, input, renderer, scene, camera, post,
       pause: (p: boolean) => { paused = p; renderer.domElement.style.visibility = p ? 'hidden' : 'visible'; },
       /** Deterministic capture for automated tests: simulate n frames, render once, return a JPEG data URL. */
       step: (n: number, dt = 1 / 30, capture = true) => {
