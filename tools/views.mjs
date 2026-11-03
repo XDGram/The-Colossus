@@ -12,4 +12,10 @@ add('05_bridge', streamX(BRIDGE_Z) + 30, BRIDGE_Z + 25, streamX(BRIDGE_Z), BRIDG
 add('06_ring', SITES.ring.x + 5, SITES.ring.z + 40, COLOSSUS_POS.x, COLOSSUS_POS.z, 0.02, 5);
 add('07_player_close', pathX(100), 100, pathX(60), 60, -0.15, 2.8);
 add('08_back_view', pathX(-50), -50, s.x, s.z, -0.05, 5);
+// Into the sun (sun azimuth ~ +x, slightly -z): shafts through columns, trees and ruins.
+const sun = [0.95, -0.32];
+add('09_sun_colonnade', pathX(200) - 14, 200, pathX(200) - 14 + sun[0] * 50, 200 + sun[1] * 50, 0.12, 4.5);
+add('10_sun_terrace', SITES.terrace.x - 40, SITES.terrace.z + 12, SITES.terrace.x + 40, SITES.terrace.z - 15, 0.1, 5);
+add('11_roots', SITES.ring.x - 10, SITES.ring.z + 10, COLOSSUS_POS.x, COLOSSUS_POS.z, 0.0, 5);
+add('12_ivy_gate', SITES.gate.x + 6, SITES.gate.z + 9, SITES.gate.x, SITES.gate.z, -0.05, 3.5);
 console.log(JSON.stringify(V));

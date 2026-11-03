@@ -92,6 +92,9 @@ export class CardField {
             vec3 viewW = normalize(vViewPosition);
             vec3 sunV = normalize((viewMatrix * vec4(${sd.x.toFixed(4)}, ${sd.y.toFixed(4)}, ${sd.z.toFixed(4)}, 0.0)).xyz);
             float back = pow(max(dot(-viewW, sunV), 0.0), 4.0);
+            #ifdef USE_FOG
+              back *= cloudLight(vFogWorldPos);
+            #endif
             totalEmissiveRadiance += diffuseColor.rgb * vec3(${sc.r.toFixed(3)}, ${sc.g.toFixed(3)}, ${sc.b.toFixed(3)}) * back * vT * 1.6;
           }`);
     };
@@ -339,4 +342,82 @@ export class Birds {
     });
     this.mesh.instanceMatrix.needsUpdate = true;
   }
+}
+
+/** World-space leaf cards (vertex positions + UVs per card) extracted once from the tree model. */
+function leafCards(tree: GLTF) {
+  let lm: THREE.Mesh | null = null;
+  tree.scene.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh && /leaves/i.test((m.material as THREE.Material).name)) lm = m; });
+  const mesh = lm as unknown as THREE.Mesh;
+  tree.scene.updateMatrixWorld(true);
+  const P = mesh.geometry.getAttribute('position'), U = mesh.geometry.getAttribute('uv'), I = mesh.geometry.index!;
+  const par = new Int32Array(P.count).map((_, i) => i);
+  const f = (x: number): number => { while (par[x] !== x) x = par[x] = par[par[x]]; return x; };
+  for (let i = 0; i < I.count; i += 3) { const r = f(I.getX(i)); par[f(I.getX(i + 1))] = r; par[f(I.getX(i + 2))] = r; }
+  const groups = new Map<number, number[]>();
+  for (let i = 0; i < I.count; i += 3) { const r = f(I.getX(i)); (groups.get(r) ?? groups.set(r, []).get(r)!).push(i); }
+  const v = new THREE.Vector3();
+  return [...groups.values()].map((tris) => {
+    const verts = [...new Set(tris.flatMap((t) => [I.getX(t), I.getX(t + 1), I.getX(t + 2)]))];
+    const pos = verts.map((i) => v.fromBufferAttribute(P, i).applyMatrix4(mesh.matrixWorld).clone());
+    const c = pos.reduce((a, b) => a.add(b), new THREE.Vector3()).multiplyScalar(1 / pos.length);
+    const local = new Map(verts.map((vi, k) => [vi, k]));
+    return { pos: pos.map((p) => p.sub(c)), uv: verts.map((i) => [U.getX(i), U.getY(i)]), tris: tris.map((t) => [local.get(I.getX(t))!, local.get(I.getX(t + 1))!, local.get(I.getX(t + 2))!]) };
+  });
+}
+
+/**
+ * Ivy on the ruins: leaf cards spiralling up columns and pillars (thinning toward the top) with a few
+ * strands trailing down. One merged mesh, alpha-tested with the tree's leaf texture.
+ */
+export function vineGeometry(tree: GLTF, anchors: { x: number; z: number; base: number; top: number; r: number }[], seed = 3) {
+  const cards = leafCards(tree);
+  const rnd = mulberry32(seed);
+  const pos: number[] = [], nor: number[] = [], uv: number[] = [], idx: number[] = [];
+  const q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0);
+  const addLeaf = (at: THREE.Vector3, out: THREE.Vector3, size: number) => {
+    const card = cards[Math.floor(rnd() * cards.length)];
+    // Orient the card to face outward from the stone with some randomness.
+    const n = out.clone().add(new THREE.Vector3(rnd() - 0.5, rnd() * 0.6, rnd() - 0.5).multiplyScalar(0.8)).normalize();
+    q.setFromUnitVectors(up, n).multiply(new THREE.Quaternion().setFromAxisAngle(up, rnd() * 6.28));
+    const b = pos.length / 3;
+    card.pos.forEach((p, k) => {
+      const w = p.clone().multiplyScalar(size).applyQuaternion(q).add(at);
+      pos.push(w.x, w.y, w.z);
+      nor.push(out.x * 0.7, 0.7, out.z * 0.7);
+      uv.push(card.uv[k][0], card.uv[k][1]);
+    });
+    for (const t of card.tris) idx.push(b + t[0], b + t[1], b + t[2]);
+  };
+  for (const a of anchors) {
+    if (rnd() > 0.85) continue;
+    const reach = a.base + (a.top - a.base) * (0.45 + rnd() * 0.55);
+    const strands = 1 + Math.floor(rnd() * 2);
+    for (let s = 0; s < strands; s++) {
+      let ang = rnd() * Math.PI * 2;
+      const turn = (rnd() < 0.5 ? -1 : 1) * (0.5 + rnd() * 0.6);
+      for (let y = a.base; y < reach; y += 0.05) {
+        const t = (y - a.base) / Math.max(0.1, reach - a.base);
+        ang += turn * 0.05;
+        const density = 1 - t * 0.7;
+        for (let k = 0; k < 4; k++) {
+          if (rnd() > density) continue;
+          const spread = (rnd() - 0.5) * 1.6;
+          const out = new THREE.Vector3(Math.cos(ang + spread), 0, Math.sin(ang + spread));
+          addLeaf(new THREE.Vector3(a.x, y + (rnd() - 0.5) * 0.1, a.z).addScaledVector(out, a.r + 0.03 + rnd() * 0.05), out, 2.6 + rnd() * 1.2);
+        }
+      }
+      // A trailing strand hanging from the top of the growth.
+      const out = new THREE.Vector3(Math.cos(ang), 0, Math.sin(ang));
+      for (let y = reach; y > reach - 1.2 - rnd(); y -= 0.11) addLeaf(new THREE.Vector3(a.x, y, a.z).addScaledVector(out, a.r + 0.06), out, 1.5);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  g.computeBoundingSphere();
+  return g;
 }

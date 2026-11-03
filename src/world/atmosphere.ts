@@ -55,21 +55,29 @@ export function installFogChunks(sunDir: THREE.Vector3, sunFogColor: THREE.Color
 #ifdef USE_FOG
   uniform vec3 fogColor;
   varying vec3 vFogWorldPos;
-  #ifdef FOG_EXP2
-    uniform float fogDensity;
-  #else
-    uniform float fogNear;
-    uniform float fogFar;
-  #endif
+  // The scene uses a linear THREE.Fog purely as a uniform carrier refreshed every frame for every
+  // material: fogNear = height-fog density, fogFar = elapsed time (drives the drifting cloud shadows).
+  uniform float fogNear;
+  uniform float fogFar;
+  #define ATMO_SUN_DIR ${v3(sunDir)}
+  float cloudHash( vec2 p ) { return fract( sin( dot( p, vec2( 127.1, 311.7 ) ) ) * 43758.5453 ); }
+  float cloudNoise( vec2 p ) {
+    vec2 i = floor( p ), f = fract( p ); f = f * f * ( 3.0 - 2.0 * f );
+    return mix( mix( cloudHash( i ), cloudHash( i + vec2( 1, 0 ) ), f.x ), mix( cloudHash( i + vec2( 0, 1 ) ), cloudHash( i + vec2( 1, 1 ) ), f.x ), f.y );
+  }
+  /** Sunlight let through by slow-drifting broken clouds: golden patches and naturally shaded areas. */
+  float cloudLight( vec3 wpos ) {
+    // Project along the sun direction onto the cloud layer so shadows land where the sun puts them.
+    vec2 p = ( wpos.xz - ATMO_SUN_DIR.xz / max( ATMO_SUN_DIR.y, 0.2 ) * ( 260.0 - wpos.y ) ) * 0.0042;
+    p += vec2( 0.82, 0.57 ) * fogFar * 0.0065 + vec2( 3.7, 1.3 );
+    float n = cloudNoise( p ) * 0.62 + cloudNoise( p * 2.7 + 3.1 ) * 0.28 + cloudNoise( p * 7.3 - 1.7 ) * 0.1;
+    return mix( 0.58, 1.0, smoothstep( 0.3, 0.52, n ) );
+  }
   vec3 applyAtmosphere( vec3 col, vec3 wpos ) {
     vec3 ray = wpos - cameraPosition;
     float dist = length( ray );
     vec3 dir = ray / max( dist, 1e-4 );
-    #ifdef FOG_EXP2
-      float density = fogDensity;
-    #else
-      float density = 0.0;
-    #endif
+    float density = fogNear;
     const float falloff = ${FOG.falloff.toFixed(6)};
     float camH = cameraPosition.y - (${FOG.base.toFixed(2)});
     float rayY = dir.y * dist * falloff;
@@ -81,6 +89,15 @@ export function installFogChunks(sunDir: THREE.Vector3, sunFogColor: THREE.Color
     return mix( col, fc, f );
   }
 #endif`;
+
+  // Cloud shadows modulate the sun (first directional light) for every lit material.
+  THREE.ShaderChunk.lights_fragment_begin = THREE.ShaderChunk.lights_fragment_begin.replace(
+    'getDirectionalLightInfo( directionalLight, directLight );',
+    `getDirectionalLightInfo( directionalLight, directLight );
+    #if defined( USE_FOG ) && UNROLLED_LOOP_INDEX == 0
+      directLight.color *= cloudLight( vFogWorldPos );
+    #endif`,
+  );
 
   THREE.ShaderChunk.fog_fragment = /* glsl */ `
 #ifdef USE_FOG
@@ -145,7 +162,8 @@ export async function loadAtmosphere(renderer: THREE.WebGLRenderer, url: string,
   const rotY = TARGET_SUN_AZIMUTH - azH;
   const el = Math.asin(THREE.MathUtils.clamp(sunDirH.y, -1, 1));
   // Clamp elevation into a cinematic range (long but not grazing shadows).
-  const elC = THREE.MathUtils.clamp(el, THREE.MathUtils.degToRad(26), THREE.MathUtils.degToRad(40));
+  // Golden-hour elevation: long shadows, and the sun sits in frame when looking toward it (god rays).
+  const elC = THREE.MathUtils.clamp(el, THREE.MathUtils.degToRad(21), THREE.MathUtils.degToRad(23));
   const sunDir = new THREE.Vector3(Math.cos(elC) * Math.cos(TARGET_SUN_AZIMUTH), Math.sin(elC), Math.cos(elC) * Math.sin(TARGET_SUN_AZIMUTH));
 
   // Horizon colour away from the sun drives the fog; horizon colour toward the sun drives in-scatter.

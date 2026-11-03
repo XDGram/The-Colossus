@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { mergeGeometries, mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { fbm, mulberry32, smoothstep } from '../core/noise';
 import { n3, block, stoneMaterial } from './stone';
-import { COLOSSUS_POS, terrainHeight } from './heightfield';
+import { COLOSSUS_POS, terrainHeight, PLAY, SITES, POOL } from './heightfield';
+import type { Colliders } from './colliders';
 import type { TextureSet } from '../core/assets';
 
 /**
@@ -33,6 +34,7 @@ export class Colossus {
   private legRoots: THREE.BufferGeometry[] = [];
   private torsoParts: Ellipsoid[] = [];
   readonly headPivot = V(0, 150, 95);
+  private rootMat!: THREE.Material;
 
   constructor(tex: Record<string, TextureSet>) {
     const gy = terrainHeight(COLOSSUS_POS.x, COLOSSUS_POS.z);
@@ -71,6 +73,7 @@ export class Colossus {
     add(this.root, this.legRoots, rootMat);
     add(this.head, this.headSkin, skinMat);
     add(this.head, this.headRoots, rootMat);
+    this.rootMat = rootMat;
 
     // Eyes: deep-set, faintly glowing amber embers. Subtle, they should read as "alive", not as lamps.
     this.eyeMat = new THREE.MeshStandardMaterial({ color: 0x1a1208, emissive: new THREE.Color(1.0, 0.62, 0.28), emissiveIntensity: 2.2, roughness: 0.4 });
@@ -308,6 +311,56 @@ export class Colossus {
   }
 
   private r(a: number, b: number) { return a + (b - a) * this.rnd(); }
+
+  /**
+   * Giant roots reaching out from the Colossus across the valley floor toward the ruins: half-buried,
+   * surfacing in arches, thinning as they go. World-space mesh plus colliders inside the play area.
+   */
+  buildLandRoots(colliders: Colliders) {
+    const parts: THREE.BufferGeometry[] = [];
+    const rnd = mulberry32(4711);
+    const m = this.root.matrixWorld;
+    const starts = [V(-70, 4, 140), V(70, 4, 140), V(-64, 4, -130), V(64, 4, -130), V(0, 10, 60)].map((v) => v.applyMatrix4(m));
+    for (let i = 0; i < 9; i++) {
+      const s0 = starts[i % starts.length];
+      // Reach toward (and partly past) the ring of arches, fanning out across the basin.
+      const tx = SITES.ring.x + (rnd() - 0.5) * 220, tz = SITES.ring.z + 40 - rnd() * 120;
+      const n = 9;
+      const pts: THREE.Vector3[] = [];
+      const radii: number[] = [];
+      const r0 = 3.2 + rnd() * 2.4;
+      for (let k = 0; k <= n; k++) {
+        const t = k / n;
+        const x = THREE.MathUtils.lerp(s0.x, tx, t) + Math.sin(t * 5 + i) * 18 * t;
+        const z = THREE.MathUtils.lerp(s0.z, tz, t) + Math.cos(t * 4 + i * 2) * 14 * t;
+        const r = r0 * (1 - t * 0.72);
+        // Mostly buried; surfaces in a couple of arches along its length.
+        const surface = Math.max(0, Math.sin(t * Math.PI * (2 + (i % 2)) + i)) * r * 0.9;
+        const inPool = Math.hypot(x - POOL.x, (z - POOL.z) * 0.85) < POOL.r + 4;
+        const y = terrainHeight(x, z) - r * 0.55 + surface - (inPool ? 1.5 : 0);
+        pts.push(V(x, y, z));
+        radii.push(r);
+      }
+      parts.push(this.limb(pts, radii, 0.5, 3000 + i, 12));
+      // Colliders where the root is inside the explorable area and stands proud of the ground.
+      const curve = new THREE.CatmullRomCurve3(pts);
+      for (let k = 0; k <= 60; k++) {
+        const t = k / 60;
+        const p = curve.getPointAt(t);
+        if (p.z < PLAY.minZ - 5) continue;
+        const r = THREE.MathUtils.lerp(radii[0], radii[radii.length - 1], t);
+        const g = terrainHeight(p.x, p.z);
+        if (p.y + r > g + 0.6) colliders.addCircle(p.x, p.z, r * 0.9, g - 1, p.y + r);
+      }
+    }
+    const geo = mergeGeometries(parts, false)!;
+    bakeAO(geo);
+    geo.computeBoundingSphere();
+    const mesh = new THREE.Mesh(geo, this.rootMat);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    return mesh;
+  }
 
   update(t: number) {
     // Slow breathing (~11s cycle) lifts the chest and back; the head drifts and settles.

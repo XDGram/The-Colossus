@@ -52,7 +52,7 @@ export class Player {
   }
 
   update(dt: number, input: Input, camYaw: number, enabled: boolean) {
-    const ax = enabled ? input.axis() : { x: 0, y: 0 };
+    const ax = enabled ? input.axis() : { x: 0, y: 0, mag: 0 };
     // Camera-relative intent: camera looks along -Z rotated by camYaw.
     const fwd = new THREE.Vector3(-Math.sin(camYaw), 0, -Math.cos(camYaw));
     const right = new THREE.Vector3(-fwd.z, 0, fwd.x);
@@ -61,6 +61,7 @@ export class Player {
     if (moving) wish.normalize();
 
     let speed = input.sprint ? SPEED.sprint : input.walk ? SPEED.walk : SPEED.jog;
+    if (ax.mag < 1) speed = THREE.MathUtils.lerp(SPEED.walk, speed, THREE.MathUtils.smoothstep(ax.mag, 0.35, 0.9));
     // Wading through the stream slows you down.
     const wy = waterY(this.position.z);
     const depth = Math.max(0, wy - this.position.y);
@@ -161,7 +162,18 @@ function muteOutfit(mat: THREE.MeshStandardMaterial) {
         float l = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
         vec3 muted = mix(diffuseColor.rgb, vec3(l), 0.42) * vec3(0.95, 0.93, 0.86);
         diffuseColor.rgb = muted;
-      }`);
+      }`).replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+      #ifdef USE_FOG
+      {
+        // Catching the sun: a warm rim and lift, only where sunlight reaches the player (cloud patches).
+        vec3 sunV = normalize((viewMatrix * vec4(ATMO_SUN_DIR, 0.0)).xyz);
+        vec3 nV = normalize(vNormal);
+        float rim = pow(1.0 - max(dot(nV, normalize(vViewPosition)), 0.0), 2.5);
+        float facing = max(dot(nV, sunV), 0.0);
+        float lit = smoothstep(0.5, 0.95, cloudLight(vFogWorldPos));
+        totalEmissiveRadiance += diffuseColor.rgb * vec3(1.0, 0.78, 0.5) * (rim * (0.35 + 0.9 * facing) * 1.4 + facing * 0.12) * lit;
+      }
+      #endif`);
   };
   mat.customProgramCacheKey = () => 'muted-outfit';
 }

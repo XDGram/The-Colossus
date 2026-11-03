@@ -16,6 +16,8 @@ export class Ruins {
   readonly group = new THREE.Group();
   /** Footprints used by vegetation scatter to keep plants out of solid stone. */
   readonly footprints: { x: number; z: number; r: number }[] = [];
+  /** Columns and pillars that ivy can climb. */
+  readonly vineAnchors: { x: number; z: number; base: number; top: number; r: number }[] = [];
   private parts: Record<Bucket, THREE.BufferGeometry[]> = { masonry: [], carved: [] };
   private rnd = mulberry32(4242);
   private m = new THREE.Matrix4();
@@ -120,6 +122,7 @@ export class Ruins {
       }
       this.colliders.addBox(px, pz, 2.1, 2.1, -ry, y0, y);
       this.footprints.push({ x: px, z: pz, r: 2 });
+      this.vineAnchors.push({ x: px, z: pz, base: y0 + 0.3, top: y, r: 1.15 });
       if (side === -1) {
         // Capital and a cantilevered stub of the broken lintel.
         this.put(block(2.5, 0.7, 2.5, { seed: 3 }), 'carved', px, y + 0.35, pz, ry);
@@ -155,6 +158,7 @@ export class Ruins {
         this.put(column(0.55, fullH, { broken, seed: i * 7 + side, base: true, capital: !broken }), 'carved', x, y + 0.5, zz, ry + this.r(0, 1));
         if (!broken) this.put(block(1.7, 0.5, 1.7, { seed: i }), 'carved', x, y + 0.5 + fullH + 0.2, zz, ry);
         this.colliders.addCircle(x, zz, 0.75, y, y + (broken ?? fullH) + 0.5);
+        this.vineAnchors.push({ x, z: zz, base: y + 0.3, top: y + (broken ?? fullH) + 0.4, r: 0.62 });
         this.footprints.push({ x, z: zz, r: 1.4 });
       }
       // Sunken paving slabs between the columns.
@@ -309,6 +313,7 @@ export class Ruins {
       pillarTop.push(y);
       this.colliders.addBox(x, z, 1.8, 1.8, a, y0, y);
       this.footprints.push({ x, z, r: 1.8 });
+      this.vineAnchors.push({ x, z, base: y0 + 0.4, top: y, r: 1.0 });
     }
     // Arches between intact neighbouring pillars.
     for (let i = 0; i < count; i++) {

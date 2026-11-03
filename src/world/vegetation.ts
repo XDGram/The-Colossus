@@ -460,7 +460,26 @@ export class Motes {
     for (let i = 0; i < count; i++) { this.pos.set([rnd() * 40 - 20, rnd() * 8, rnd() * 40 - 20], i * 3); this.seeds[i] = rnd() * 100; }
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(this.pos, 3));
-    const m = new THREE.PointsMaterial({ color: 0xfff2d8, size: 0.05, transparent: true, opacity: 0.55, depthWrite: false, blending: THREE.AdditiveBlending, fog: true });
+    // Soft round glints (not squares) that only light up where the sun actually falls.
+    const c = document.createElement('canvas');
+    c.width = c.height = 64;
+    const ctx = c.getContext('2d')!;
+    const grad = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+    grad.addColorStop(0, 'rgba(255,255,255,1)');
+    grad.addColorStop(0.25, 'rgba(255,255,255,0.55)');
+    grad.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 64, 64);
+    const sprite = new THREE.CanvasTexture(c);
+    const m = new THREE.PointsMaterial({ color: 0xffe2b0, map: sprite, size: 0.07, transparent: true, opacity: 0.8, depthWrite: false, blending: THREE.AdditiveBlending, fog: true });
+    m.onBeforeCompile = (sh) => {
+      sh.fragmentShader = sh.fragmentShader.replace('#include <fog_fragment>', `
+        #ifdef USE_FOG
+          float lit = smoothstep(0.55, 0.95, cloudLight(vFogWorldPos));
+          gl_FragColor.a *= 0.15 + 0.85 * lit;
+        #endif
+        #include <fog_fragment>`);
+    };
     this.points = new THREE.Points(g, m);
     this.points.frustumCulled = false;
   }

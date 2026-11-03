@@ -10,7 +10,7 @@ import { Colossus } from './world/colossus';
 import { ScatterLayer, TreeImpostor, TreeField, Motes, partsOf, placeVegetation, setVegetationTime } from './world/vegetation';
 import { Player } from './player/player';
 import { Post } from './core/post';
-import { CardField, crossedCards, flowerCard, grassGenerator, flowerGenerator, bushGeometry, Birds, setFoliageTime } from './world/foliage';
+import { CardField, crossedCards, flowerCard, grassGenerator, flowerGenerator, bushGeometry, vineGeometry, Birds, setFoliageTime } from './world/foliage';
 import { ThirdPersonCamera } from './player/camera';
 import { PLAY, COLOSSUS_POS, SITES, terrainHeight } from './world/heightfield';
 
@@ -79,13 +79,16 @@ async function main() {
 
   // ---- sky & light ----
   scene.background = atmo.background;
-  scene.backgroundRotation.set(0, atmo.backgroundRotationY, 0);
+  // three.js inverts background/environment rotation internally for render-target cube maps.
+  scene.backgroundRotation.set(0, -atmo.backgroundRotationY, 0);
   scene.backgroundIntensity = 0.95;
   scene.environment = atmo.envMap;
-  scene.environmentRotation.set(0, atmo.backgroundRotationY, 0);
+  scene.environmentRotation.set(0, -atmo.backgroundRotationY, 0);
   scene.environmentIntensity = 0.55;
-  scene.fog = new THREE.FogExp2(atmo.fogColor.getHex(), FOG.density);
-  (scene.fog as THREE.FogExp2).color.copy(atmo.fogColor);
+  // Linear Fog used as a per-frame uniform carrier: near = height-fog density, far = time (see atmosphere.ts).
+  const fog = new THREE.Fog(atmo.fogColor.getHex(), FOG.density, 0);
+  fog.color.copy(atmo.fogColor);
+  scene.fog = fog;
 
   // Warm key light; the sky supplies cool blue fill in the shadows.
   const sun = new THREE.DirectionalLight(atmo.sunColor.clone().lerp(new THREE.Color(1, 0.84, 0.64), 0.5), 4.4);
@@ -114,6 +117,8 @@ async function main() {
   await frame();
   const colossus = new Colossus(assets.textures);
   scene.add(colossus.root);
+  colossus.root.updateMatrixWorld(true);
+  scene.add(colossus.buildLandRoots(colliders));
 
   ui.status.textContent = 'Growing the forest';
   await frame();
@@ -168,6 +173,18 @@ async function main() {
   scene.add(grass.mesh, flowers.mesh);
   const birds = new Birds([{ x: COLOSSUS_POS.x, z: COLOSSUS_POS.z + 120, y: 230 }, { x: SITES.terrace.x, z: SITES.terrace.z, y: 70 }, { x: SITES.gate.x, z: SITES.gate.z - 80, y: 85 }]);
   scene.add(birds.mesh);
+  // Ivy on the ruins, from the tree's leaf cards.
+  {
+    let leafMat: THREE.MeshStandardMaterial | null = null;
+    assets.models.tree_hero.scene.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh && /leaves/i.test((m.material as THREE.Material).name)) leafMat = m.material as THREE.MeshStandardMaterial; });
+    const ivyMat = (leafMat as unknown as THREE.MeshStandardMaterial).clone();
+    ivyMat.onBeforeCompile = () => {};
+    ivyMat.color = new THREE.Color(0.62, 0.74, 0.5);
+    const ivy = new THREE.Mesh(vineGeometry(assets.models.tree_hero, ruins.vineAnchors), ivyMat);
+    ivy.castShadow = true;
+    ivy.receiveShadow = true;
+    scene.add(ivy);
+  }
   const motes = new Motes();
   scene.add(motes.points);
 
@@ -192,7 +209,7 @@ async function main() {
     grass.update(cp);
     flowers.update(cp);
   };
-  const post = new Post(renderer, scene, camera, quality);
+  const post = new Post(renderer, scene, camera, quality, atmo.sunDir);
   tpc.update(0.016, input, player.position, 0);
   updateWorld(0);
   await renderer.compileAsync(scene, camera);
@@ -246,6 +263,7 @@ async function main() {
     water.update(t);
     setVegetationTime(t);
     setFoliageTime(t);
+    fog.far = t;
     birds.update(t);
     motes.update(t, player.position);
     updateWorld(t);

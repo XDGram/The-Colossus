@@ -40,7 +40,7 @@ export class Water {
   constructor() {
     const normals = makeWaterNormals();
     const mat = new THREE.MeshStandardMaterial({
-      color: new THREE.Color(0x141c18), roughness: 0.1, metalness: 0.0, envMapIntensity: 0.75,
+      color: new THREE.Color(0x141c18), roughness: 0.08, metalness: 0.0, envMapIntensity: 1.2,
       transparent: true, opacity: 0.82, normalMap: normals, normalScale: new THREE.Vector2(1.1, 1.1),
     });
     mat.onBeforeCompile = (sh) => {
