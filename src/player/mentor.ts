@@ -205,17 +205,51 @@ export function dressMentor(model: THREE.Object3D, scan?: HeadScan): MentorRig {
       add('spine_02', 'cloth', paint(lap, flat(C.robeDark)));
     }
   }
-  // Skirt of the haori: back and side panels hang from the pelvis, front panels ride the thighs.
+  // Skirt of the haori: continuous curved fabric. The back half hangs from the pelvis; each front half
+  // rides its thigh and overlaps the back at the sides, so there are no gaps or loose panel edges.
   {
-    const s = torso(waist);
-    const H = 0.52;
-    const spots: [number, string, number][] = [[Math.PI, 'pelvis', 0.36], [Math.PI * 0.62, 'thigh_l', 0.22], [-Math.PI * 0.62, 'thigh_r', 0.22], [Math.PI * 0.2, 'thigh_l', 0.17], [-Math.PI * 0.2, 'thigh_r', 0.17]];
-    const rx = Math.min(s.rx, 0.17) + 0.06, rz = Math.min(s.rz, 0.13) + 0.06;
-    for (const [a, bone, w] of spots) {
-      const g = panel(w, H, 0.06, 5, C.robe, C.robeDark);
-      const m = new THREE.Matrix4().makeRotationY(a).setPosition(s.cx + Math.sin(a) * rx, waist + 0.02, s.cz + Math.cos(a) * rz);
-      add(bone, 'cloth', g, m);
-    }
+    const s0 = torso(waist);
+    const rx = Math.min(s0.rx, 0.17) + 0.065, rz = Math.min(s0.rz, 0.13) + 0.065, cx = s0.cx, cz = s0.cz;
+    const H = 0.54;
+    const sector = (a0: number, a1: number, seed: number) => {
+      const cols = Math.max(12, Math.round((a1 - a0) * 26)), rows = 10;
+      const pos: number[] = [], idx: number[] = [], cs: number[] = [];
+      for (let r = 0; r <= rows; r++) {
+        const t = r / rows;
+        for (let c = 0; c <= cols; c++) {
+          const a = a0 + ((a1 - a0) * c) / cols;
+          // Folds deepen toward the hem and drift; the hem dips unevenly.
+          const fold = Math.sin(a * 9 + seed + t * 1.2) * 0.012 * (0.3 + t) + Math.sin(a * 23 + seed) * 0.004 * t;
+          const flare = 1 + t * t * 0.22;
+          const rr = 1 + fold / Math.max(rx, rz);
+          const y = waist + 0.02 - t * H + (r === rows ? Math.sin(a * 7 + seed) * 0.018 + Math.sin(a * 19) * 0.006 : 0);
+          pos.push(cx + Math.sin(a) * rx * flare * rr, y, cz + Math.cos(a) * rz * flare * rr);
+          const shade = Math.sin(a * 9 + seed + t * 1.2) > 0.5 ? 0.62 : 1;
+          const col = C.robe.clone().multiplyScalar(shade * (0.92 + 0.12 * Math.sin(seed + c)));
+          cs.push(col.r, col.g, col.b);
+        }
+      }
+      for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) { const k = r * (cols + 1) + c; idx.push(k, k + cols + 1, k + 1, k + 1, k + cols + 1, k + cols + 2); }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      g.setAttribute('color', new THREE.Float32BufferAttribute(cs, 3));
+      g.setIndex(idx); g.computeVertexNormals();
+      return g;
+    };
+    add('pelvis', 'cloth', sector(Math.PI * 0.42, Math.PI * 1.58, 1));       // back, wrapping round the sides
+    add('thigh_l', 'cloth', sector(Math.PI * 0.08, Math.PI * 0.55, 2));      // his left front (+x)
+    add('thigh_r', 'cloth', sector(-Math.PI * 0.55, -Math.PI * 0.08, 3));    // his right front
+  }
+  // Hakama front apron: a pleated layer across both legs from the waist to mid-thigh, hiding the leg seams.
+  {
+    const s0 = torso(waist - 0.02);
+    const rx = Math.min(s0.rx, 0.17) + 0.05, rz = Math.min(s0.rz, 0.13) + 0.05;
+    const g = new THREE.CylinderGeometry(1, 1.18, 0.34, 48, 3, true, -Math.PI * 0.42, Math.PI * 0.84);
+    const gp = g.getAttribute('position') as THREE.BufferAttribute;
+    for (let i = 0; i < gp.count; i++) { const a = Math.atan2(gp.getX(i), gp.getZ(i)); const k = 1 + Math.max(0, Math.sin(a * 10)) * 0.05; gp.setX(i, gp.getX(i) * k); gp.setZ(i, gp.getZ(i) * k); }
+    g.scale(rx, 1, rz).translate(s0.cx, waist - 0.2, s0.cz);
+    g.computeVertexNormals();
+    add('pelvis', 'cloth', paint(g, (q) => (Math.sin(Math.atan2(q.x - s0.cx, q.z - s0.cz) * 10) > 0.55 ? C.hakama.clone().multiplyScalar(0.68) : C.hakama), 0.04));
   }
   // Wide sleeves, tied back for combat: a flared shell from shoulder to just past the elbow.
   for (const side of ['l', 'r']) {
@@ -323,10 +357,46 @@ export function dressMentor(model: THREE.Object3D, scan?: HeadScan): MentorRig {
     const crown = g.boundingBox!.max.y;
     const tipV = new THREE.Vector3().fromBufferAttribute(pos, tip);
     const s = 0.128 / (crown - tipV.y);           // crown to nose tip ~12.8 cm on a 1.8 m man
+    // Open the eyes. The scan was captured with closed lids; eye centres (scan units, found from the
+    // lash lines in the colour map) are carved into an almond opening with a heavy upper lid, and eyeballs
+    // are set behind it. Calm and watchful: the opening is ~60% of a full eye, pupils level and forward.
+    const eyeC = [new THREE.Vector3(-0.86, 1.67, 1.75), new THREE.Vector3(0.64, 1.66, 1.78)];
+    const eyeGeos: THREE.BufferGeometry[] = [];
+    for (const e of eyeC) {
+      const a = 0.21, bUp = 0.045, bDn = 0.055;
+      for (let i = 0; i < pos.count; i++) {
+        const x = pos.getX(i) - e.x, y = pos.getY(i) - e.y, z = pos.getZ(i);
+        if (z < e.z - 0.35) continue;
+        const ny = y > 0 ? y / bUp : y / bDn;
+        const r2 = (x / a) ** 2 + ny ** 2;
+        // Almond shape: corners pinch; inside, the lid surface recedes behind the eyeball.
+        if (r2 < 1) pos.setZ(i, Math.min(z, e.z - 0.3 - 0.06 * (1 - r2)));
+        else if (r2 < 2.2) {
+          const k = (r2 - 1) / 1.2;
+          // Lid rims: a slight swell for the upper lid fold and lower lid edge.
+          pos.setZ(i, z + (1 - k) * (y > 0 ? 0.035 : 0.015));
+        }
+      }
+      const R = 0.29;
+      const eye = new THREE.SphereGeometry(R, 32, 24).rotateX(Math.PI / 2);
+      const ep = eye.getAttribute('position') as THREE.BufferAttribute;
+      const col = new Float32Array(ep.count * 3);
+      for (let i = 0; i < ep.count; i++) {
+        const z = ep.getZ(i) / R; // 1 = straight ahead
+        const ang = Math.acos(Math.min(1, Math.max(-1, z)));
+        const c = ang < 0.26 ? srgb(0.02, 0.018, 0.015) : ang < 0.62 ? srgb(0.22, 0.16, 0.11).lerp(srgb(0.1, 0.08, 0.06), (ang - 0.26) / 0.36) : srgb(0.5, 0.45, 0.4).lerp(srgb(0.45, 0.33, 0.3), Math.max(0, ang - 0.9) * 0.5);
+        if (ang > 0.6 && ang < 0.66) c.multiplyScalar(0.5); // limbal ring
+        col.set([c.r, c.g, c.b], i * 3);
+      }
+      eye.setAttribute('color', new THREE.BufferAttribute(col, 3));
+      eye.translate(e.x, e.y - 0.005, e.z - 0.36 + R * 0.88);
+      eyeGeos.push(eye);
+    }
+    g.computeVertexNormals();
     const target = head.clone().add(new THREE.Vector3(0, 0.085 - 0.02, 0.015 + 0.103));
     g.translate(-tipV.x, -tipV.y, -tipV.z).scale(s, s, s).translate(target.x, target.y, target.z);
     // Trim the bust: drop triangles below the neck top.
-    const cut = neck.y + 0.03;
+    const cut = neck.y + 0.0;
     const idx = g.index!;
     const keep: number[] = [];
     for (let i = 0; i < idx.count; i += 3) {
@@ -338,6 +408,13 @@ export function dressMentor(model: THREE.Object3D, scan?: HeadScan): MentorRig {
     mesh.castShadow = mesh.receiveShadow = true;
     mesh.applyMatrix4(model.matrixWorld);
     bones['Head'].attach(mesh);
+    // Eyeballs share the head's transform; wet, glossy surface so they catch the light.
+    const eyeMat = new THREE.MeshPhysicalMaterial({ vertexColors: true, roughness: 0.18, clearcoat: 1, clearcoatRoughness: 0.05 });
+    const eg = mergeGeometries(eyeGeos.map((x) => x.toNonIndexed()), false)!;
+    eg.translate(-tipV.x, -tipV.y, -tipV.z).scale(s, s, s).translate(target.x, target.y, target.z);
+    const eyes = new THREE.Mesh(eg, eyeMat);
+    eyes.applyMatrix4(model.matrixWorld);
+    bones['Head'].attach(eyes);
   };
 
   // ---------------- Head: weathered face, calm hooded eyes, grey beard and hair ----------------
@@ -408,7 +485,7 @@ export function dressMentor(model: THREE.Object3D, scan?: HeadScan): MentorRig {
 
     // ---------------- Sandogasa: wide, shallow straw hat, battered and frayed ----------------
     const R = 0.34, H = 0.1, top = hc.clone().add(new THREE.Vector3(0, 0.1, 0.012));
-    const hat = new THREE.RingGeometry(0.0001, R, 96, 18);
+    const hat = new THREE.RingGeometry(0.0001, R, 200, 48);
     const hpz = hat.getAttribute('position') as THREE.BufferAttribute;
     for (let i = 0; i < hpz.count; i++) {
       const x = hpz.getX(i), y = hpz.getY(i), r = Math.hypot(x, y), a = Math.atan2(y, x);
@@ -431,8 +508,12 @@ export function dressMentor(model: THREE.Object3D, scan?: HeadScan): MentorRig {
     hat.rotateX(-0.12).translate(top.x, top.y, top.z);
     add('Head', 'straw', paint(hat.toNonIndexed(), (q) => {
       const r = Math.hypot(q.x - top.x, q.z - top.z), a = Math.atan2(q.z - top.z, q.x - top.x);
-      const weave = Math.sin(r * 420) * 0.5 + Math.sin(a * 120) * 0.5;
-      let c = (weave > 0.3 ? C.straw : C.strawDark).clone().multiplyScalar(0.72);
+      // Hand-plaited straw: rings wander, spokes vary in width, strands differ in tone.
+      const warp = fbm(q.x * 40, q.z * 40, 2) * 0.012;
+      const ring = Math.sin((r + warp) * 380 + fbm(a * 3, r * 20, 2) * 2.5);
+      const spoke = Math.sin(a * (100 + 20 * Math.sin(r * 30)) + fbm(r * 50, a, 2) * 3);
+      const strand = 0.8 + 0.4 * fbm(Math.floor(r * 140) * 0.37, Math.floor(a * 30) * 0.21, 1);
+      let c = ((ring * 0.6 + spoke * 0.4) > 0.15 ? C.straw : C.strawDark).clone().multiplyScalar(0.72 * strand);
       c.multiplyScalar(0.8 + fbm(q.x * 30, q.z * 30, 2) * 0.35);              // grime and rain stains
       c.lerp(srgb(0.66, 0.62, 0.52), 0.35 * Math.max(0, 1 - r / (R * 0.7)));   // sun-bleached crown
       const da = ((a - 2.3 + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
@@ -450,8 +531,17 @@ export function dressMentor(model: THREE.Object3D, scan?: HeadScan): MentorRig {
     }
   }
 
-  // Neck: skin bridging the robe collar and the head.
+  // Neck: skin bridging the collar and the head, then a gathered cloth scarf (kubimaki) wound twice
+  // around it that hides the scan's trim line and the top of the robe.
   add('neck_01', 'skin', paint(new THREE.CylinderGeometry(0.052, 0.058, 0.12, 14, 1, true).translate(neck.x, neck.y + 0.04, neck.z + 0.008), flat(C.skin.clone().multiplyScalar(0.8))));
+  for (let k = 0; k < 3; k++) {
+    const t = new THREE.TorusGeometry(0.064 + k * 0.006, 0.02 - k * 0.003, 10, 28).rotateX(Math.PI / 2);
+    const tp = t.getAttribute('position') as THREE.BufferAttribute;
+    for (let i = 0; i < tp.count; i++) { const a = Math.atan2(tp.getZ(i), tp.getX(i)); tp.setY(i, tp.getY(i) + Math.sin(a * 6 + k) * 0.004 + Math.sin(a) * 0.012 * (k - 1)); }
+    t.computeVertexNormals();
+    t.translate(neck.x, neck.y + 0.065 - k * 0.022, neck.z + 0.004);
+    add(k === 0 ? 'neck_01' : 'spine_03', 'cloth', paint(t, (q) => (Math.sin(Math.atan2(q.z - neck.z, q.x) * 10) > 0.4 ? C.robeDark : srgb(0.22, 0.24, 0.29)), 0.05));
+  }
 
   // ---------------- Drawn blade (hidden until drawn), held in the right hand ----------------
   const blade = new THREE.Group();
@@ -547,11 +637,39 @@ export function dressMentor(model: THREE.Object3D, scan?: HeadScan): MentorRig {
   // Blade axis in hand-bone space, captured at rest.
   bones['hand_r'].updateMatrixWorld(true);
   const bladeLocal = (() => {
-    const h = P('hand_r'), ix = P('index_01_r'), pk = P('pinky_01_r');
-    void h;
+    const ix = P('index_01_r'), pk = P('pinky_01_r');
     const wDir = pk.clone().sub(ix).normalize().transformDirection(model.matrixWorld);
     return wDir.applyQuaternion(bones['hand_r'].getWorldQuaternion(new THREE.Quaternion()).invert());
   })();
+  /** Per hand, in hand-bone space at rest: grip axis (along the hilt), finger direction, grip point offset. */
+  const gripInfo = (side: 'l' | 'r') => {
+    const hb = bones[`hand_${side}`];
+    hb.updateMatrixWorld(true);
+    const qi = hb.getWorldQuaternion(new THREE.Quaternion()).invert();
+    const W = P(`hand_${side}`), L = P(`lowerarm_${side}`), ix = P(`index_01_${side}`), pk = P(`pinky_01_${side}`), md = P(`middle_02_${side}`);
+    const toW = (v: THREE.Vector3) => v.clone().transformDirection(model.matrixWorld).applyQuaternion(qi);
+    const axis = toW(pk.clone().sub(ix).normalize());
+    const fingers = toW(md.clone().sub(W).normalize());
+    fingers.sub(axis.clone().multiplyScalar(fingers.dot(axis))).normalize();
+    // The hilt sits in the curled fingers: past the knuckles, toward the palm.
+    const palm = new THREE.Vector3().crossVectors(axis, fingers).multiplyScalar(side === 'r' ? 1 : -1);
+    const gp = ix.clone().add(pk).multiplyScalar(0.5).add(L.clone().sub(W).normalize().multiplyScalar(-0.025));
+    const off = gp.clone().sub(W).applyMatrix4(new THREE.Matrix4().copy(model.matrixWorld).setPosition(0, 0, 0)).applyQuaternion(qi);
+    void palm;
+    return { axis, fingers, off };
+  };
+  const grips = { l: gripInfo('l'), r: gripInfo('r') };
+  /** Sets a hand's world rotation so its grip axis runs along `dir` and its fingers wrap toward `wrap`. */
+  const orientHand = (side: 'l' | 'r', dir: THREE.Vector3, wrap: THREE.Vector3) => {
+    const hb = bones[`hand_${side}`], gi = grips[side];
+    const A = dir.clone().normalize(), F = wrap.clone().sub(A.clone().multiplyScalar(wrap.dot(A))).normalize();
+    const Bl = new THREE.Matrix4().makeBasis(gi.axis, gi.fingers, new THREE.Vector3().crossVectors(gi.axis, gi.fingers));
+    const Bw = new THREE.Matrix4().makeBasis(A, F, new THREE.Vector3().crossVectors(A, F));
+    const worldQ = new THREE.Quaternion().setFromRotationMatrix(Bw.multiply(Bl.invert()));
+    hb.quaternion.copy(hb.parent!.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(worldQ));
+    hb.updateMatrixWorld(true);
+    return worldQ;
+  };
   void tmpV; void tmpW;
   const cfg = globalThis as { __curl?: number; __curlAxis?: [number, number, number] };
   const curl = cfg.__curl ?? 1.1;
@@ -568,17 +686,22 @@ export function dressMentor(model: THREE.Object3D, scan?: HeadScan): MentorRig {
       model.updateMatrixWorld(true);
       const rIsNegX = worldPos(bones['upperarm_r']).clone().applyMatrix4(M.clone().invert()).x < 0;
       const sx = rIsNegX ? -1 : 1;
-      const fwd = new THREE.Vector3(0, 0.62, 1).transformDirection(M);
-      arm('r', pt(sx * 0.005, 1.1, 0.42), pt(sx * 0.5, 0.85, 0.1));
-      aimAxis(bones['hand_r'], bladeLocal, fwd);
-      // Left hand closes on the end of the hilt, a fist-width behind the right.
-      const bladeW = bladeLocal.clone().applyQuaternion(bones['hand_r'].getWorldQuaternion(new THREE.Quaternion())).normalize();
-      const grip = worldPos(bones['hand_r']).addScaledVector(bladeW, -0.13);
-      arm('l', grip, pt(-sx * 0.5, 0.85, 0.05));
-      aimAxis(bones['hand_l'], bladeLocal, fwd);
-      // Close both hands around the hilt.
-      for (const side of ['l', 'r']) for (const f of ['index', 'middle', 'ring', 'pinky']) for (const k of ['01', '02', '03']) bones[`${f}_${k}_${side}`]?.rotateOnAxis(curlAxis, curl);
-      for (const side of ['l', 'r']) bones[`thumb_02_${side}`]?.rotateOnAxis(curlAxis, curl * 0.5);
+      const fwd = new THREE.Vector3(0, 0.62, 1).transformDirection(M).normalize();
+      // Fingers wrap down and back around the hilt (the hilt lies across the palms, edge forward).
+      const wrap = new THREE.Vector3(0, -1, -0.35).transformDirection(M);
+      // Grip points on the hilt: right hand just behind the guard, left hand a fist-width behind at the pommel end.
+      const hiltR = pt(0, 1.08, 0.36), hiltL = hiltR.clone().addScaledVector(fwd, -0.105);
+      const ms = new THREE.Vector3(); M.decompose(new THREE.Vector3(), new THREE.Quaternion(), ms);
+      for (let pass = 0; pass < 3; pass++) for (const side of ['r', 'l'] as const) {
+        const target = side === 'r' ? hiltR : hiltL;
+        const q = orientHand(side, fwd, wrap);
+        const wrist = target.clone().sub(grips[side].off.clone().multiply(ms).applyQuaternion(q));
+        arm(side, wrist, pt(side === 'r' ? sx * 0.55 : -sx * 0.55, 0.85, 0.05));
+        orientHand(side, fwd, wrap);
+      }
+      // Close the fingers around the hilt.
+      for (const side of ['l', 'r']) for (const f of ['index', 'middle', 'ring', 'pinky']) for (const k of ['01', '02', '03']) bones[`${f}_${k}_${side}`]?.rotateOnAxis(curlAxis, curl * (k === '01' ? 0.8 : 1.15));
+      for (const side of ['l', 'r']) { bones[`thumb_02_${side}`]?.rotateOnAxis(curlAxis, curl * 0.6); bones[`thumb_03_${side}`]?.rotateOnAxis(curlAxis, curl * 0.6); }
       blade.visible = true;
     },
     applyPosture() {

@@ -61,7 +61,7 @@ const mixer = new THREE.AnimationMixer(mentor);
 const hero = clone(ranger.scene); setup(hero); dressWarrior(hero); hero.visible = false; scene.add(hero);
 const heroMixer = new THREE.AnimationMixer(hero);
 
-(window as any).shot = (clip: string, time: number, yaw: number, dist = 3.6, h = 1.0, look = 0.95, drawn = false, lineup = false) => {
+(window as any).shot = (clip: string, time: number, yaw: number, dist = 3.6, h = 1.0, look = 0.95, drawn = false, lineup = false, lookZ = 0) => {
   mixer.stopAllAction(); heroMixer.stopAllAction();
   const guard = clip === 'GUARD';
   const a = mixer.clipAction(lib.animations.find((c) => c.name === (guard ? 'Idle_Loop' : clip))!);
@@ -73,8 +73,8 @@ const heroMixer = new THREE.AnimationMixer(hero);
   hero.visible = lineup;
   mentor.position.x = lineup ? -0.55 : 0;
   if (lineup) { hero.position.x = 0.55; heroMixer.clipAction(ranger.animations.find((c) => c.name === 'Idle_Loop')!).play(); heroMixer.setTime(0.5); }
-  cam.position.set(Math.sin(yaw) * dist, h, Math.cos(yaw) * dist);
-  cam.lookAt(0, look, 0);
+  cam.position.set(Math.sin(yaw) * dist, h, lookZ + Math.cos(yaw) * dist);
+  cam.lookAt(0, look, lookZ);
   r.render(scene, cam);
   return r.domElement.toDataURL('image/jpeg', 0.92);
 };
