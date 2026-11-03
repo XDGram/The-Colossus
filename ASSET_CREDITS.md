@@ -30,6 +30,7 @@ Original downloads are kept out of the repository (`assets-src/`, git-ignored). 
 | Clay Plaster | [Poly Haven](https://polyhaven.com/a/clay_plaster) | Amal Kumar | CC0 1.0 | Not required (credited) | 1K JPG set | `public/assets/textures/clay_plaster/` | As above. Temple plaster walls, desaturated and lightened. |
 | Cobblestone Floor 03 | [Poly Haven](https://polyhaven.com/a/cobblestone_floor_03) | Rob Tuytel | CC0 1.0 | Not required (credited) | 1K JPG set | `public/assets/textures/cobblestone_floor_03/` | As above. Temple paving, platforms and stone. |
 | Wood Planks Grey | [Poly Haven](https://polyhaven.com/a/wood_planks_grey) | Rob Tuytel | CC0 1.0 | Not required (credited) | 1K JPG set | `public/assets/textures/wood_planks_grey/` | As above. Temple timber framing, eaves and brackets. |
+| LPS Head (Lee Perry-Smith head scan) | [McGuire Computer Graphics Archive](https://casual-effects.com/data/) (via the [three.js examples](https://github.com/mrdoob/three.js/tree/r170/examples/models/gltf/LeePerrySmith)) | Lee Perry-Smith / Infinite-Realities, © I-R Entertainment Ltd. | CC BY 3.0 | **Required**: "LPS Head by Lee Perry-Smith (Infinite-Realities), © I-R Entertainment Ltd., CC BY 3.0" | `LeePerrySmith.glb`, `Map-COL.jpg`, `Infinite-Level_02_Tangent_SmoothUV.jpg` | `assets-src/heads/lee-perry-smith/` (mentor preview only, fetched by `tools/fetch-head.sh`) | Scaled and fitted to the mentor's Head bone; bust trimmed below the neck; skin aged and hair greyed in the shader. |
 
 ## Original work (made for this game)
 

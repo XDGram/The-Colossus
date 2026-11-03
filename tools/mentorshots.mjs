@@ -9,7 +9,7 @@ const p = await b.newPage({ viewport: { width: 700, height: 900 } });
 p.setDefaultTimeout(900000);
 p.on('pageerror', (e) => console.log('ERR', e.message));
 p.on('console', (m) => { if (m.type() === 'error') console.log('CONSOLE', m.text()); });
-await p.goto('http://localhost:5173/tools/mentor/');
+await p.goto('http://localhost:5173/tools/mentor/' + (process.env.Q || ''));
 await p.waitForFunction(() => document.title === 'ready', null, { polling: 1000 });
 const shots = JSON.parse(process.env.SHOTS || '[]');
 for (const [name, ...args] of shots) {
