@@ -46,6 +46,19 @@ export class Colliders {
     return best;
   }
 
+  /** Highest collider top under (x,z) that is a plausible floor (below `maxTop`). */
+  floorAt(x: number, z: number, maxTop: number): number {
+    let best = -Infinity;
+    for (const c of this.near(x, z)) if (c.top < maxTop && inside(c, x, z, 0)) best = Math.max(best, c.top);
+    return best;
+  }
+
+  /** True if the point is inside any collider's volume (used to stop the camera at walls). */
+  blocks(x: number, y: number, z: number): boolean {
+    for (const c of this.near(x, z)) if (y > c.bottom && y < c.top && inside(c, x, z, 0.12)) return true;
+    return false;
+  }
+
   /** Pushes (x,z) out of solid colliders. Returns corrected position. */
   resolve(x: number, z: number, feetY: number, radius: number, headroom = 1.7): [number, number] {
     for (let iter = 0; iter < 3; iter++) {

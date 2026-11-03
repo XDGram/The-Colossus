@@ -25,8 +25,15 @@ Original downloads are kept out of the repository (`assets-src/`, git-ignored). 
 | Bark 014 | [ambientCG](https://ambientcg.com/a/Bark014) | ambientCG (Lennart Demes) | CC0 1.0 | Not required (credited) | `Bark014_1K-JPG.zip` | `public/assets/textures/bark014/` | As above. The Colossus's root sinews. |
 | Modular Character Outfits – Fantasy (Male Ranger) | [Quaternius](https://quaternius.com/packs/modularcharacteroutfitsfantasy.html) ([itch.io](https://quaternius.itch.io/modular-character-outfits-fantasy)) | Quaternius | CC0 1.0 (per `License_Standard.txt` in the pack) | Not required (credited) | `Outfits/Male_Ranger.gltf` (free Standard pack) | `public/assets/models/ranger.glb` | Merged with four animation clips (below); textures to 1K WebP. Outfit colours muted toward the game palette at runtime. |
 | Universal Animation Library | [Quaternius](https://quaternius.com/packs/universalanimationlibrary.html) ([itch.io](https://quaternius.itch.io/universal-animation-library)) | Quaternius | CC0 1.0 (per `License.txt` in the pack) | Not required (credited) | `UAL1_Standard.glb` | inside `public/assets/models/ranger.glb` | Only `Idle_Loop`, `Walk_Loop`, `Jog_Fwd_Loop` and `Sprint_Loop` kept and retargeted by bone name onto the Ranger (identical 65-bone skeleton); resampled. |
+| Ceramic Roof 01 | [Poly Haven](https://polyhaven.com/a/ceramic_roof_01) | Rob Tuytel | CC0 1.0 | Not required (credited) | 1K JPG set | `public/assets/textures/ceramic_roof_01/` | Converted to WebP; AO/roughness/height packed. Temple roof tiles, recoloured at runtime to blue-grey kawara. |
+| Brown Planks 07 | [Poly Haven](https://polyhaven.com/a/brown_planks_07) | Rob Tuytel | CC0 1.0 | Not required (credited) | 1K JPG set | `public/assets/textures/brown_planks_07/` | As above. Temple floors. |
+| Clay Plaster | [Poly Haven](https://polyhaven.com/a/clay_plaster) | Amal Kumar | CC0 1.0 | Not required (credited) | 1K JPG set | `public/assets/textures/clay_plaster/` | As above. Temple plaster walls, desaturated and lightened. |
+| Cobblestone Floor 03 | [Poly Haven](https://polyhaven.com/a/cobblestone_floor_03) | Rob Tuytel | CC0 1.0 | Not required (credited) | 1K JPG set | `public/assets/textures/cobblestone_floor_03/` | As above. Temple paving, platforms and stone. |
+| Wood Planks Grey | [Poly Haven](https://polyhaven.com/a/wood_planks_grey) | Rob Tuytel | CC0 1.0 | Not required (credited) | 1K JPG set | `public/assets/textures/wood_planks_grey/` | As above. Temple timber framing, eaves and brackets. |
 
 ## Original work (made for this game)
+
+- **Temple compound** (`src/temple/`): enterable buildings (walls with doors and windows, sliding screens, interiors, curved tiled roofs, brackets), paving, leaf litter and carpets, banners, lanterns, props, sun beams and the surrounding settlement, all procedural.
 
 These are built procedurally in code and are not third-party assets:
 

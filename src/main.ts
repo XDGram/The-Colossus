@@ -10,6 +10,10 @@ import { Colossus } from './world/colossus';
 import { ScatterLayer, TreeImpostor, TreeField, Motes, partsOf, placeVegetation, setVegetationTime } from './world/vegetation';
 import { Player } from './player/player';
 import { Post } from './core/post';
+import { mulberry32 } from './core/noise';
+import { buildTemple, templeHeight } from './temple/compound';
+import { applyTempleMaterials } from './temple/materials';
+import { SunBeams } from './temple/light';
 import { CardField, crossedCards, flowerCard, grassGenerator, flowerGenerator, bushGeometry, vineGeometry, Birds, setFoliageTime } from './world/foliage';
 import { ThirdPersonCamera } from './player/camera';
 import { PLAY, COLOSSUS_POS, SITES, terrainHeight } from './world/heightfield';
@@ -18,6 +22,8 @@ type Quality = 'high' | 'low';
 const params = new URLSearchParams(location.search);
 const quality: Quality = (params.get('quality') as Quality) || (localStorage.getItem('tlc-quality') as Quality) || 'high';
 const debug = params.has('debug');
+// The temple compound is in development; the valley stays the default until it is approved.
+const sceneName = params.get('scene') === 'temple' ? 'temple' : 'valley';
 
 const ui = {
   loader: document.getElementById('loader')!,
@@ -51,7 +57,10 @@ async function main() {
     ui.bar.style.width = `${(p * 100).toFixed(0)}%`;
   };
   ui.status.textContent = 'Gathering the sky';
-  const atmo = await loadAtmosphere(renderer, `${import.meta.env.BASE_URL}assets/hdri/sky_2k.hdr`, (p) => { pHdr = p; progress(); });
+  const atmo = await loadAtmosphere(renderer, `${import.meta.env.BASE_URL}assets/hdri/sky_2k.hdr`, (p) => { pHdr = p; progress(); }, sceneName === 'temple' ? 22 : undefined,
+    // Temple: sun low behind the main hall (north-east), backlighting the roofs and throwing long shadows
+    // down the courtyard toward the gate.
+    sceneName === 'temple' ? Math.atan2(-0.82, 0.57) : undefined);
   pHdr = 1; progress();
   // Clear-day aerial perspective: soft sky-blue haze, warming toward the sun.
   atmo.fogColor.lerp(new THREE.Color(0.55, 0.68, 0.86), 0.35).multiplyScalar(0.85);
@@ -66,7 +75,8 @@ async function main() {
       ...['rock_moss_set_01', 'rock_moss_set_02', 'boulder_01'].flatMap((m) => [m, `${m}_lod1`, `${m}_lod2`]),
       ...['fern_02', 'root_cluster_01', 'tree_stump_01', 'dead_tree_trunk_02', 'dry_branches_medium_01'].flatMap((m) => [m, `${m}_lod1`]),
     ],
-    ['ground037', 'grass004', 'ground067', 'rock051', 'rock030', 'rock064', 'bark014'],
+    ['ground037', 'grass004', 'ground067', 'rock051', 'rock030', 'rock064', 'bark014',
+      ...(sceneName === 'temple' ? ['ceramic_roof_01', 'brown_planks_07', 'clay_plaster', 'cobblestone_floor_03', 'wood_planks_grey'] : [])],
   );
   const texLoader = new THREE.TextureLoader();
   const foliageTex = async (f: string) => {
@@ -101,9 +111,69 @@ async function main() {
   scene.add(sun, sun.target);
 
   // ---- world ----
+  const colliders = new Colliders();
+  let worldUpdate: (t: number, cam: THREE.Vector3, pl: THREE.Vector3) => void;
+  let startPos: { x: number; z: number };
+  let startYaw: number;
+  sun.position.copy(atmo.sunDir).multiplyScalar(300);
+  sun.target.position.set(0, 0, 0);
+  const templeLayers: ScatterLayer[] = [];
+  if (sceneName === 'temple') {
+    ui.status.textContent = 'Raising the temple';
+    await frame();
+    applyTempleMaterials(assets.textures);
+    // Golden-hour key light for the temple: warmer and stronger, with cooler sky fill.
+    sun.color.setRGB(1.0, 0.8, 0.52);
+    sun.intensity = 5.0;
+    scene.environmentIntensity = 0.62;
+    renderer.toneMappingExposure = 1.0;
+    const temple = buildTemple(colliders, quality);
+    fog.near = FOG.density * 0.45; // crisper, brighter air than the valley
+    scene.add(temple.group);
+    const impostor = new TreeImpostor(renderer, assets.models.tree_hero, sun, atmo.envMap);
+    // Over-range tint (instance colours are floats): leaf luminance x 2.6 x this lands on bright ginkgo gold.
+    const GINKGO = new THREE.Color(2.7, 1.95, 0.32);
+    const trees = new TreeField(assets.models.tree_hero, impostor, temple.treeSpots, quality === 'high' ? 95 : 60, quality === 'high' ? 10 : 5, temple.treeGold.map((g) => (g ? GINKGO : null)));
+    trees.enableTint();
+    scene.add(trees.group);
+    const motes = new Motes();
+    scene.add(motes.points);
+    startPos = temple.start;
+    startYaw = temple.startYaw;
+    // Volumetric sun beams through the gaps: beside the courtyard trees, between the hall and corridors,
+    // through the gate and across the side paths.
+    const beams = new SunBeams(atmo.sunDir, [
+      { x: -20, y: 0, z: -30, r: 2.6 }, { x: 20, y: 0, z: -40, r: 3.2 }, { x: -22, y: 0, z: 36, r: 2.4 }, { x: 24, y: 0, z: 33, r: 2.8 },
+      { x: -8, y: 0, z: -14, r: 1.8 }, { x: 10, y: 0, z: 2, r: 2.2 }, { x: -4, y: 0, z: 20, r: 1.6 }, { x: 16, y: 0, z: 18, r: 2.0 },
+      { x: 0, y: 0, z: 49, r: 2.2 }, { x: -30, y: 0, z: -6, r: 1.8 }, { x: 28, y: 0, z: -20, r: 2.4 }, { x: 6, y: 0, z: -30, r: 1.6 },
+    ]);
+    scene.add(beams.mesh);
+    // Rock outcrops breaking the hillsides around the settlement.
+    {
+      const rocks: THREE.Matrix4[] = [];
+      const rr = mulberry32(5150);
+      for (let i = 0; i < 400 && rocks.length < 110; i++) {
+        const a = rr() * Math.PI * 2, d = 140 + rr() * 420, x = Math.cos(a) * d * 1.2, z = -20 + Math.sin(a) * d;
+        const n = (() => { const e = 3, hx = templeHeight(x + e, z) - templeHeight(x - e, z), hz = templeHeight(x, z + e) - templeHeight(x, z - e); return 2 * e / Math.hypot(hx, 2 * e, hz); })();
+        if (n > 0.93) continue;
+        const sc = 4 + rr() * 14;
+        rocks.push(new THREE.Matrix4().compose(new THREE.Vector3(x, templeHeight(x, z) - sc * 0.45, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(rr() * 0.4, rr() * 6, rr() * 0.4)), new THREE.Vector3(sc, sc * 0.8, sc)));
+      }
+      const l = new ScatterLayer(['boulder_01', 'boulder_01_lod1', 'boulder_01_lod2'].map((n) => partsOf(assets.models[n])), rocks, { maxDist: 2000, lodDist: [60, 300], castShadow: false, chunk: 120 });
+      scene.add(l.group);
+      templeLayers.push(l);
+    }
+    scene.backgroundIntensity = 1.05;
+    let lastT = 0;
+    worldUpdate = (t, cp, pp) => {
+      trees.update(cp); temple.update(cp, pp); beams.update(t);
+      for (const l of templeLayers) l.update(cp);
+      temple.falling.update(Math.min(0.1, t - lastT), t, pp, templeHeight);
+      lastT = t;
+    };
+  } else {
   ui.status.textContent = 'Raising stone';
   await frame();
-  const colliders = new Colliders();
   const terrain = new Terrain(assets.textures, quality);
   terrain.buildAll(PLAY.start.x, PLAY.start.z);
   scene.add(terrain.group);
@@ -122,8 +192,6 @@ async function main() {
 
   ui.status.textContent = 'Growing the forest';
   await frame();
-  sun.position.copy(atmo.sunDir).multiplyScalar(300);
-  sun.target.position.set(0, 0, 0);
   const impostor = new TreeImpostor(renderer, assets.models.tree_hero, sun, atmo.envMap);
   const veg = placeVegetation(ruins.footprints, colliders);
   const trees = new TreeField(assets.models.tree_hero, impostor, [...veg.trees, ...colossus.backTreeSpots], quality === 'high' ? 95 : 60, quality === 'high' ? 10 : 5, veg.tints);
@@ -188,28 +256,39 @@ async function main() {
   const motes = new Motes();
   scene.add(motes.points);
 
+    startPos = PLAY.start;
+    startYaw = Math.atan2(-(COLOSSUS_POS.x - PLAY.start.x), -(COLOSSUS_POS.z - PLAY.start.z));
+    worldUpdate = (t, cp, pp) => {
+      terrain.update(cp.x, cp.z);
+      trees.update(cp);
+      for (const l of layers) l.update(cp);
+      grass.update(cp);
+      flowers.update(cp);
+      colossus.update(t);
+      water.update(t);
+      birds.update(t);
+      motes.update(t, pp);
+    };
+  }
+
   // ---- player ----
   const input = new Input(renderer.domElement);
-  const player = new Player(assets.models.ranger, colliders, PLAY.start);
+  const player = new Player(assets.models.ranger, colliders, startPos);
   scene.add(player.object);
   const tpc = new ThirdPersonCamera(camera);
-  // Open looking down the valley toward the Colossus.
-  tpc.yaw = Math.atan2(-(COLOSSUS_POS.x - PLAY.start.x), -(COLOSSUS_POS.z - PLAY.start.z));
+  tpc.yaw = startYaw;
   tpc.pitch = -0.02;
   player.setFacing(tpc.yaw + Math.PI);
   tpc.snap(player.position);
 
   ui.status.textContent = 'Preparing shaders';
   await frame();
-  const updateWorld = (t: number) => {
-    const cp = camera.position;
-    terrain.update(cp.x, cp.z);
-    trees.update(cp);
-    for (const l of layers) l.update(cp);
-    grass.update(cp);
-    flowers.update(cp);
-  };
+  const updateWorld = (t: number) => worldUpdate(t, camera.position, player.position);
   const post = new Post(renderer, scene, camera, quality, atmo.sunDir);
+  if (sceneName === 'temple') {
+    post.rays.uniforms.uIntensity.value = 0.5;
+    if (post.bloom) { post.bloom.strength = 0.22; post.bloom.threshold = 0.95; }
+  }
   tpc.update(0.016, input, player.position, 0);
   updateWorld(0);
   await renderer.compileAsync(scene, camera);
@@ -259,13 +338,9 @@ async function main() {
     player.update(dt, input, tpc.yaw, started);
     if (debugCam) { camera.position.fromArray(debugCam[0]); camera.lookAt(...debugCam[1]); }
     else tpc.update(dt, input, player.position, Math.hypot(player.velocity.x, player.velocity.z));
-    colossus.update(t);
-    water.update(t);
     setVegetationTime(t);
     setFoliageTime(t);
     fog.far = t;
-    birds.update(t);
-    motes.update(t, player.position);
     updateWorld(t);
     // Shadow frustum follows the player, snapped to texels to prevent shimmering.
     const c = player.position;

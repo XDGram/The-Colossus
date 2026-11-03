@@ -202,6 +202,12 @@ export class TreeField {
     this.group.add(this.impostor);
   }
 
+  /** Opt in to per-tree foliage tints (FOLIAGE_TINT), e.g. golden ginkgo in the temple. */
+  enableTint() {
+    const mats = [this.impostor.material as THREE.Material, ...this.full.filter((f) => f.instanceColor).map((f) => f.material as THREE.Material)];
+    for (const m of mats) { m.defines = { ...(m.defines ?? {}), FOLIAGE_TINT: '' }; m.needsUpdate = true; }
+  }
+
   update(cam: THREE.Vector3) {
     // Rebuild only when the camera has moved a few metres.
     const key = `${Math.round(cam.x / 4)},${Math.round(cam.z / 4)}`;
@@ -231,7 +237,7 @@ export class TreeField {
 const WHITE = new THREE.Color(1, 1, 1);
 /** Recolours foliage by luminance toward the per-instance colour (white = unchanged). */
 const AUTUMN_GLSL = /* glsl */ `
-  #ifdef USE_INSTANCING_COLOR
+  #if defined( USE_COLOR ) && defined( FOLIAGE_TINT )
     {
       float lum = dot(diffuseColor.rgb, vec3(0.3, 0.59, 0.11));
       float amt = step(0.02, abs(vColor.r - vColor.g) + abs(vColor.g - vColor.b));

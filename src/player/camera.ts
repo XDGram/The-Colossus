@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { terrainHeight } from '../world/heightfield';
+import { ground } from '../world/ground';
 import type { Input } from '../core/input';
 
 /** Third-person orbit camera with smoothing, zoom, shoulder offset and terrain collision. */
@@ -40,11 +40,11 @@ export class ThirdPersonCamera {
     for (let i = 1; i <= 16; i++) {
       const d = (dist * i) / 16;
       const p = base.clone().addScaledVector(dir, d);
-      if (p.y < terrainHeight(p.x, p.z) + 0.35) { allowed = Math.max(0.8, d - dist / 16); break; }
+      if (p.y < ground.height(p.x, p.z) + 0.35 || ground.solid?.(p.x, p.y, p.z)) { allowed = Math.max(0.8, d - dist / 16); break; }
     }
     this.currentDist = allowed < this.currentDist ? allowed : THREE.MathUtils.lerp(this.currentDist, allowed, 1 - Math.exp(-4 * dt));
     const pos = base.clone().addScaledVector(dir, this.currentDist);
-    pos.y = Math.max(pos.y, terrainHeight(pos.x, pos.z) + 0.3);
+    pos.y = Math.max(pos.y, ground.height(pos.x, pos.z) + 0.3);
     this.camera.position.copy(pos);
     this.camera.lookAt(this.pivot.clone().addScaledVector(right, 0.42).add(new THREE.Vector3(0, 0.05, 0)));
   }

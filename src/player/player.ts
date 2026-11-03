@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
-import { terrainHeight, terrainNormal, waterY, PLAY, valleyAxis } from '../world/heightfield';
+import { ground } from '../world/ground';
 import type { Colliders } from '../world/colliders';
 import type { Input } from '../core/input';
 import { dressWarrior } from './armour';
@@ -42,7 +42,7 @@ export class Player {
     this.actions = { idle: clip('Idle_Loop'), walk: clip('Walk_Loop'), jog: clip('Jog_Fwd_Loop'), sprint: clip('Sprint_Loop') };
     for (const a of Object.values(this.actions)) { a.play(); a.setEffectiveWeight(0); }
     this.actions.idle.setEffectiveWeight(1);
-    this.position.set(start.x, terrainHeight(start.x, start.z), start.z);
+    this.position.set(start.x, ground.height(start.x, start.z), start.z);
     this.object.position.copy(this.position);
     this.object.rotation.y = this.yaw;
   }
@@ -51,7 +51,8 @@ export class Player {
   setFacing(yaw: number) { this.yaw = yaw; this.object.rotation.y = yaw; }
 
   teleport(x: number, z: number) {
-    this.position.set(x, terrainHeight(x, z), z);
+    const g = ground.height(x, z);
+    this.position.set(x, Math.max(g, this.colliders.floorAt(x, z, g + 2.5)), z);
     this.velocity.set(0, 0, 0);
   }
 
@@ -67,7 +68,7 @@ export class Player {
     let speed = input.sprint ? SPEED.sprint : input.walk ? SPEED.walk : SPEED.jog;
     if (ax.mag < 1) speed = THREE.MathUtils.lerp(SPEED.walk, speed, THREE.MathUtils.smoothstep(ax.mag, 0.35, 0.9));
     // Wading through the stream slows you down.
-    const wy = waterY(this.position.z);
+    const wy = ground.water(this.position.z);
     const depth = Math.max(0, wy - this.position.y);
     this.inWater = depth;
     if (depth > 0.05) speed *= THREE.MathUtils.lerp(0.75, 0.45, Math.min(1, depth / 0.8));
@@ -81,7 +82,7 @@ export class Player {
     // Proposed move, with slope limiting: you can't walk up anything steeper than MAX_SLOPE.
     let nx = this.position.x + this.velocity.x * dt;
     let nz = this.position.z + this.velocity.z * dt;
-    const n = terrainNormal(nx, nz, 0.5);
+    const n = ground.normal(nx, nz, 0.5);
     if (n[1] < MAX_SLOPE_Y) {
       const uphill = -(this.velocity.x * n[0] + this.velocity.z * n[2]);
       if (uphill > 0) {
@@ -97,26 +98,24 @@ export class Player {
     }
     [nx, nz] = this.colliders.resolve(nx, nz, this.position.y, RADIUS);
     // Soft bounds of the explorable area.
-    nz = THREE.MathUtils.clamp(nz, PLAY.minZ, PLAY.maxZ);
-    const ax0 = valleyAxis(nz);
-    nx = THREE.MathUtils.clamp(nx, ax0 - 380, ax0 + 380);
+    [nx, nz] = ground.clamp(nx, nz);
 
     // Ground: terrain or a walkable stone surface.
-    const ground = Math.max(terrainHeight(nx, nz), this.colliders.surfaceAt(nx, nz, this.position.y, RADIUS));
+    const floor = Math.max(ground.height(nx, nz), this.colliders.surfaceAt(nx, nz, this.position.y, RADIUS));
     const actual = (nx - this.position.x) / Math.max(dt, 1e-4);
     const actualZ = (nz - this.position.z) / Math.max(dt, 1e-4);
     this.velocity.x = actual; this.velocity.z = actualZ;
     this.position.x = nx; this.position.z = nz;
-    if (ground >= this.position.y - 0.05) {
-      // Step up smoothly onto higher ground.
-      this.position.y = THREE.MathUtils.lerp(this.position.y, ground, 1 - Math.exp(-25 * dt));
-      if (ground - this.position.y < 0.02) this.position.y = ground;
+    if (floor >= this.position.y - 0.05) {
+      // Step up smoothly onto higher floor.
+      this.position.y = THREE.MathUtils.lerp(this.position.y, floor, 1 - Math.exp(-25 * dt));
+      if (floor - this.position.y < 0.02) this.position.y = floor;
       this.vy = 0;
     } else {
       // Fall (or follow the slope down) under gravity.
       this.vy -= 22 * dt;
-      this.position.y = Math.max(ground, this.position.y + this.vy * dt);
-      if (this.position.y === ground) this.vy = 0;
+      this.position.y = Math.max(floor, this.position.y + this.vy * dt);
+      if (this.position.y === floor) this.vy = 0;
     }
 
     // Face movement direction.

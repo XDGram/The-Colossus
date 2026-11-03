@@ -132,7 +132,8 @@ function pixelDir(c: number, r: number, w: number, h: number) {
   return new THREE.Vector3(Math.cos(el) * Math.cos(az), Math.sin(el), Math.cos(el) * Math.sin(az));
 }
 
-export async function loadAtmosphere(renderer: THREE.WebGLRenderer, url: string, onProgress?: (p: number) => void): Promise<Atmosphere> {
+export async function loadAtmosphere(renderer: THREE.WebGLRenderer, url: string, onProgress?: (p: number) => void, elevationDeg?: number, azimuth?: number): Promise<Atmosphere> {
+  const AZ = azimuth ?? TARGET_SUN_AZIMUTH;
   const loader = new RGBELoader().setDataType(THREE.FloatType);
   const tex = await loader.loadAsync(url, (e) => e.total && onProgress?.(e.loaded / e.total));
   const { width: w, height: h, data } = tex.image as unknown as { width: number; height: number; data: Float32Array };
@@ -159,12 +160,12 @@ export async function loadAtmosphere(renderer: THREE.WebGLRenderer, url: string,
 
   // Rotate the sky so the HDRI's sun sits at our art-directed azimuth.
   const azH = Math.atan2(sunDirH.z, sunDirH.x);
-  const rotY = TARGET_SUN_AZIMUTH - azH;
+  const rotY = AZ - azH;
   const el = Math.asin(THREE.MathUtils.clamp(sunDirH.y, -1, 1));
   // Clamp elevation into a cinematic range (long but not grazing shadows).
   // Golden-hour elevation: long shadows, and the sun sits in frame when looking toward it (god rays).
-  const elC = THREE.MathUtils.clamp(el, THREE.MathUtils.degToRad(21), THREE.MathUtils.degToRad(23));
-  const sunDir = new THREE.Vector3(Math.cos(elC) * Math.cos(TARGET_SUN_AZIMUTH), Math.sin(elC), Math.cos(elC) * Math.sin(TARGET_SUN_AZIMUTH));
+  const elC = elevationDeg !== undefined ? THREE.MathUtils.degToRad(elevationDeg) : THREE.MathUtils.clamp(el, THREE.MathUtils.degToRad(21), THREE.MathUtils.degToRad(23));
+  const sunDir = new THREE.Vector3(Math.cos(elC) * Math.cos(AZ), Math.sin(elC), Math.cos(elC) * Math.sin(AZ));
 
   // Horizon colour away from the sun drives the fog; horizon colour toward the sun drives in-scatter.
   const fogColor = new THREE.Color(0, 0, 0);
