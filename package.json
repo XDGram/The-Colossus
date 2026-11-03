@@ -1,0 +1,36 @@
+{
+  "name": "the-last-colossus",
+  "version": "1.0.0",
+  "description": "The Last Colossus: The First Awakening - Scene 1 vertical slice",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "assets": "node tools/build-assets.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/XDGram/The-Colossus.git"
+  },
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/XDGram/The-Colossus/issues"
+  },
+  "homepage": "https://github.com/XDGram/The-Colossus#readme",
+  "dependencies": {
+    "three": "^0.170.0"
+  },
+  "devDependencies": {
+    "@gltf-transform/cli": "^4.1.1",
+    "@gltf-transform/core": "^4.1.1",
+    "@gltf-transform/extensions": "^4.1.1",
+    "@gltf-transform/functions": "^4.1.1",
+    "@types/three": "^0.170.0",
+    "meshoptimizer": "^0.22.0",
+    "sharp": "^0.33.5",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.11"
+  },
+  "private": true,
+  "type": "module"
+}

@@ -1,0 +1,15 @@
+<!doctype html><html><body style="margin:0;background:#9aa">
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
+const url = new URLSearchParams(location.search).get('m');
+const r = new THREE.WebGLRenderer({antialias:true}); r.setSize(800,600); document.body.appendChild(r.domElement);
+r.toneMapping = THREE.ACESFilmicToneMapping; r.outputColorSpace = THREE.SRGBColorSpace;
+const s = new THREE.Scene(); s.background = new THREE.Color(0xa8b4b8);
+s.add(new THREE.HemisphereLight(0xdfe8ff, 0x55503a, 1.6)); const d = new THREE.DirectionalLight(0xfff0d8, 2.5); d.position.set(5,8,4); s.add(d);
+const c = new THREE.PerspectiveCamera(40, 4/3, 0.01, 1000);
+new GLTFLoader().setMeshoptDecoder(MeshoptDecoder).load(url, g => { s.add(g.scene); const b = new THREE.Box3().setFromObject(g.scene); const sz = b.getSize(new THREE.Vector3()); const ctr = b.getCenter(new THREE.Vector3());
+  const R = Math.max(sz.x,sz.y,sz.z); c.position.set(ctr.x+R*1.1, ctr.y+R*0.35, ctr.z+R*1.4); c.lookAt(ctr); r.render(s,c);
+  document.title = 'done ' + sz.toArray().map(v=>v.toFixed(2)).join('x'); }, undefined, e => document.title = 'err ' + e);
+</script></body></html>

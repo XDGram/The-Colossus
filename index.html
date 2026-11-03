@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>The Last Colossus</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600&family=Inter:wght@400;500&display=swap" rel="stylesheet" />
+    <style>
+      :root { --ink: #ece6d8; --dim: rgba(236, 230, 216, 0.62); --bg: #0d0f0d; }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; background: var(--bg); overflow: hidden; color: var(--ink); font-family: Inter, system-ui, sans-serif; }
+      #app canvas { display: block; }
+      .overlay { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none; transition: opacity 1.4s ease; }
+      #loader { background: radial-gradient(ellipse at center, #1a1d18 0%, #0b0c0a 70%); }
+      #loader.done { opacity: 0; }
+      .name { font-family: 'Cormorant Garamond', serif; font-weight: 600; letter-spacing: 0.32em; font-size: clamp(28px, 4.6vw, 64px); text-transform: uppercase; margin: 0; text-shadow: 0 2px 24px rgba(0,0,0,0.5); }
+      .sub { font-family: 'Cormorant Garamond', serif; font-style: italic; letter-spacing: 0.18em; color: var(--dim); font-size: clamp(14px, 1.6vw, 21px); margin-top: 6px; }
+      .track { width: min(320px, 70vw); height: 1px; background: rgba(236,230,216,0.15); margin-top: 38px; overflow: hidden; }
+      #bar { height: 100%; width: 0; background: var(--ink); transition: width 0.3s ease; }
+      #status { margin-top: 14px; font-size: 12px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--dim); }
+      #title { opacity: 0; background: linear-gradient(to bottom, rgba(8,9,8,0.55), rgba(8,9,8,0) 45%, rgba(8,9,8,0) 70%, rgba(8,9,8,0.5)); justify-content: flex-start; padding-top: 14vh; }
+      #title.show { opacity: 1; pointer-events: auto; cursor: pointer; }
+      #title .scene { margin-top: 26px; font-size: 12px; letter-spacing: 0.4em; text-transform: uppercase; color: var(--dim); }
+      #title .begin { position: absolute; bottom: 12vh; font-size: 13px; letter-spacing: 0.3em; text-transform: uppercase; animation: pulse 2.6s ease-in-out infinite; }
+      @keyframes pulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
+      #hint { opacity: 0; justify-content: flex-end; align-items: flex-start; padding: 0 0 28px 28px; }
+      #hint.show { opacity: 1; }
+      #hint div { font-size: 12px; letter-spacing: 0.08em; color: var(--dim); line-height: 1.9; background: rgba(10,11,10,0.35); padding: 12px 16px; border-left: 1px solid rgba(236,230,216,0.35); }
+      #hint b { color: var(--ink); font-weight: 500; display: inline-block; min-width: 92px; }
+      #fps { position: fixed; top: 10px; right: 12px; font: 11px/1 ui-monospace, monospace; color: var(--dim); display: none; }
+      #fps.show { display: block; }
+      #quality { position: fixed; bottom: 10px; right: 14px; font-size: 10px; letter-spacing: 0.12em; color: rgba(236,230,216,0.35); text-transform: uppercase; }
+      @media (max-width: 600px) { #hint { padding: 0 16px 16px 16px; } }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <div id="loader" class="overlay">
+      <h1 class="name">The Last Colossus</h1>
+      <div class="sub">The First Awakening</div>
+      <div class="track"><div id="bar"></div></div>
+      <div id="status">Loading</div>
+    </div>
+    <div id="title" class="overlay">
+      <h1 class="name">The Last Colossus</h1>
+      <div class="sub">The First Awakening</div>
+      <div class="scene">I · The Forgotten Valley</div>
+      <div class="begin">Click to begin</div>
+    </div>
+    <div id="hint" class="overlay">
+      <div>
+        <b>W A S D</b> Move<br />
+        <b>Mouse</b> Look · <b style="min-width:0">Wheel</b> Zoom<br />
+        <b>Shift</b> Run · <b style="min-width:0">Ctrl / C</b> Walk<br />
+        <b>Esc</b> Release mouse
+      </div>
+    </div>
+    <div id="fps"></div>
+    <div id="quality"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
