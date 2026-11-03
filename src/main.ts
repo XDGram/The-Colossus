@@ -286,16 +286,17 @@ async function main() {
   player.setFacing(tpc.yaw + Math.PI);
   tpc.snap(player.position);
 
-  // The mentor exists only in the temple opening: standing ahead and to the right of the protagonist,
-  // turned toward him, in his two-handed guard. Not a companion; no other scene loads him.
+  // The mentor exists only in the temple opening: at the protagonist's right shoulder, a half step
+  // ahead, both facing the main gate as the invasion comes in. Not a companion; no other scene loads him.
   let mentor: Mentor | null = null;
   if (sceneName === 'temple') {
     ui.status.textContent = 'Summoning the mentor';
     await frame();
     mentor = await Mentor.load(import.meta.env.BASE_URL);
-    const mx = startPos.x + 1.4, mz = startPos.z - 2.4;
+    // Facing +z (the gate); right of the player as seen from behind is -x.
+    const mx = startPos.x - 2.0, mz = startPos.z + 0.6;
     const my = Math.max(ground.height(mx, mz), colliders.floorAt(mx, mz, ground.height(mx, mz) + 2.5));
-    mentor.place(mx, my, mz, Math.atan2(startPos.x - mx, startPos.z - mz) - 0.35, colliders);
+    mentor.place(mx, my, mz, -0.12, colliders);
     scene.add(mentor.object);
   }
 
