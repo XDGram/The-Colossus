@@ -288,9 +288,12 @@ export function dressMentor(model: THREE.Object3D, scan?: HeadScan): MentorRig {
     const e = P(`lowerarm_${side}`), w = P(`hand_${side}`);
     const fl = e.distanceTo(w);
     const Fl = frame(e, w);
+    // Continuous cloth underlayer so no forearm skin shows between or through the bands.
+    const under = new THREE.CylinderGeometry(0.058, 0.044, fl * 1.05, 16, 1, true).rotateZ(-Math.PI / 2).translate(fl * 0.5, 0, 0);
+    add(`lowerarm_${side}`, 'cloth', paint(under, flat(C.hakama.clone().multiplyScalar(0.85))), Fl);
     for (let k = 0; k < 8; k++) {
       // Wraps run from mid-forearm over the wrist bone, tapering, so skin meets cloth without a hard edge.
-      const rr = 0.044 - Math.max(0, k - 5) * 0.003;
+      const rr = 0.059 - Math.max(0, k - 5) * 0.003;
       const band = new THREE.CylinderGeometry(rr, rr + 0.002, 0.04, 12, 1, true).rotateZ(-Math.PI / 2).rotateX(0.25 * (k % 2 ? 1 : -1)).translate(fl * (0.25 + k * 0.105), 0, 0);
       add(`lowerarm_${side}`, 'cloth', paint(band, flat(C.hakama)), Fl);
     }
@@ -316,28 +319,36 @@ export function dressMentor(model: THREE.Object3D, scan?: HeadScan): MentorRig {
   // ---------------- Hakama: wide pleated trouser-skirt, one flared shell per leg ----------------
   for (const side of ['l', 'r']) {
     const hip = P(`thigh_${side}`), knee = P(`calf_${side}`), ankle = P(`foot_${side}`);
-    const up = new THREE.CylinderGeometry(0.13, 0.18, hip.distanceTo(knee) * 1.25, 72, 4, true);
+    const up = new THREE.CylinderGeometry(0.13, 0.18, hip.distanceTo(knee) * 1.25, 88, 6, true);
     // Knife pleats: each pleat ramps outward then folds back under the next, so the cloth overlaps in
     // layers with a shadowed fold line, rather than reading as a smooth tube. Pleats loosen toward the hem.
-    const NP = 9;
-    const phaseOf = (a: number) => { const f = ((a / (Math.PI * 2)) * NP + 10) % 1; return f; };
-    const pleat = (g: THREE.BufferGeometry) => {
+    const NP = 11;
+    const phaseOf = (a: number) => ((a / (Math.PI * 2)) * NP + 10) % 1;
+    // Applied to the upright cylinder (Y = along the leg) so pleats run down the leg. Each pleat ramps
+    // outward then folds back under the next; depth grows toward the hem, the shell is deeper front-to-back
+    // than side-to-side, and the inner face is pulled in and shaded so the legs read as separate.
+    const pleat = (g: THREE.BufferGeometry, h: number, sgn: number) => {
       const p = g.getAttribute('position') as THREE.BufferAttribute;
-      const y0 = g.boundingBox ? 0 : 0;
-      void y0;
       for (let i = 0; i < p.count; i++) {
-        const a = Math.atan2(p.getZ(i), p.getX(i)), f = phaseOf(a), t = THREE.MathUtils.clamp(0.5 - p.getY(i) * 2, 0, 1);
-        const k = 1 + f * (0.09 + 0.05 * t) + Math.sin(a * 3 + 1) * 0.02;
-        p.setX(i, p.getX(i) * k); p.setZ(i, p.getZ(i) * k);
+        const x = p.getX(i), z = p.getZ(i), y = p.getY(i);
+        const a = Math.atan2(z, x), f = phaseOf(a), t = THREE.MathUtils.clamp(0.5 - y / h, 0, 1);
+        const k = 1 + f * (0.1 + 0.1 * t) + Math.sin(a * 3 + y * 9) * 0.025 * t;
+        const inner = Math.max(0, -sgn * Math.cos(a)); // toward the other leg
+        p.setX(i, x * k * (1 - 0.12 * inner)); p.setZ(i, z * k * (1.12 + 0.08 * t));
       }
       g.computeVertexNormals();
-      return paint(g, (q) => { const f = phaseOf(Math.atan2(q.z, q.x)); return C.hakama.clone().multiplyScalar(f > 0.86 ? 0.5 : 0.78 + f * 0.3); }, 0.03);
+      return paint(g, (q) => {
+        const a = Math.atan2(q.z, q.x), f = phaseOf(a), inner = Math.max(0, -sgn * Math.cos(a));
+        return C.hakama.clone().multiplyScalar((f > 0.86 ? 0.5 : 0.76 + f * 0.32) * (1 - 0.3 * inner));
+      }, 0.03);
     };
+    const sgn = side === 'l' ? 1 : -1;
+    const hu = hip.distanceTo(knee) * 1.25, hl = knee.distanceTo(ankle);
     const Fu = frame(hip, knee, new THREE.Vector3(0, 0, 1));
-    add(`thigh_${side}`, 'cloth', pleat(up.rotateZ(Math.PI / 2).translate(hip.distanceTo(knee) * 0.6, 0, 0)), Fu);
-    const lo = new THREE.CylinderGeometry(0.19, 0.22, knee.distanceTo(ankle) * 1.0, 72, 4, true);
+    add(`thigh_${side}`, 'cloth', pleat(up, hu, sgn).rotateZ(Math.PI / 2).translate(hip.distanceTo(knee) * 0.6, 0, 0), Fu);
+    const lo = new THREE.CylinderGeometry(0.19, 0.23, hl, 88, 6, true);
     const Fl = frame(knee, ankle, new THREE.Vector3(0, 0, 1));
-    add(`calf_${side}`, 'cloth', pleat(lo.rotateZ(Math.PI / 2).translate(knee.distanceTo(ankle) * 0.42, 0, 0)), Fl);
+    add(`calf_${side}`, 'cloth', pleat(lo, hl, sgn).rotateZ(Math.PI / 2).translate(hl * 0.42, 0, 0), Fl);
   }
 
   // ---------------- Rope sash, prayer beads and a temple charm ----------------
@@ -422,7 +433,7 @@ export function dressMentor(model: THREE.Object3D, scan?: HeadScan): MentorRig {
       }
       eye.setAttribute('color', new THREE.BufferAttribute(col, 3));
       // Front of the eyeball sits just behind the lid rims (no bulge); centred so the iris looks straight ahead.
-      eye.translate(e.x, e.y + 0.03, e.z - 0.085 - R);
+      eye.rotateX(-0.28).translate(e.x, e.y + 0.01, e.z - 0.085 - R);
       eyeGeos.push(eye);
     }
     g.computeVertexNormals();
