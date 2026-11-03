@@ -220,6 +220,38 @@ if (want('ranger')) {
   console.log(`ranger.glb  ${(fs.statSync(out).size / 1024).toFixed(0)} KB`);
 }
 
+// Mentor (temple opening only): Quaternius Male Peasant body + UAL idle, plus the LPS head scan.
+if (want('mentor')) {
+  const Q = path.join(SRC, 'quaternius');
+  const char = await io.read(path.join(Q, 'outfits/Modular Character Outfits - Fantasy[Standard]/Exports/glTF (Godot-Unreal)/Outfits/Male_Peasant.gltf'));
+  const anim = await io.read(path.join(Q, 'ual/Universal Animation Library[Standard]/Unreal-Godot/UAL1_Standard.glb'));
+  const byName = new Map(char.getRoot().listNodes().map((n) => [n.getName(), n]));
+  for (const a of anim.getRoot().listAnimations()) {
+    if (a.getName() !== 'Idle_Loop') continue;
+    const na = char.createAnimation(a.getName());
+    for (const ch of a.listChannels()) {
+      const target = byName.get(ch.getTargetNode()?.getName()); if (!target) continue;
+      const s = ch.getSampler();
+      const cp = (acc) => char.createAccessor().setType(acc.getType()).setArray(acc.getArray().slice());
+      const ns = char.createAnimationSampler().setInput(cp(s.getInput())).setOutput(cp(s.getOutput())).setInterpolation(s.getInterpolation());
+      na.addSampler(ns).addChannel(char.createAnimationChannel().setTargetNode(target).setTargetPath(ch.getTargetPath()).setSampler(ns));
+    }
+  }
+  const buf = char.getRoot().listBuffers()[0];
+  for (const acc of char.getRoot().listAccessors()) acc.setBuffer(buf);
+  await char.transform(dedup(), resample(), textureCompress({ encoder: sharp, targetFormat: 'webp', resize: [1024, 1024], quality: 85 }), prune());
+  const out = path.join(OUT, 'models', 'mentor.glb');
+  await io.write(out, char);
+  console.log(`mentor.glb  ${(fs.statSync(out).size / 1024).toFixed(0)} KB`);
+  // Head scan: geometry copied as-is; colour and normal maps to 1K WebP.
+  const H = path.join(SRC, 'heads/lee-perry-smith');
+  const HO = path.join(OUT, 'models', 'mentor_head');
+  fs.mkdirSync(HO, { recursive: true });
+  fs.copyFileSync(path.join(H, 'LeePerrySmith.glb'), path.join(HO, 'head.glb'));
+  await sharp(path.join(H, 'Map-COL.jpg')).resize(1024, 1024).webp({ quality: 88 }).toFile(path.join(HO, 'color.webp'));
+  await sharp(path.join(H, 'Infinite-Level_02_Tangent_SmoothUV.jpg')).resize(1024, 1024).webp({ quality: 90 }).toFile(path.join(HO, 'normal.webp'));
+}
+
 // PBR texture sets for terrain, ruins and the Colossus.
 async function texSet(id, size = 1024) {
   if (!want(id)) return;

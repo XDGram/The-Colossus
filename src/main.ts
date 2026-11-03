@@ -16,6 +16,8 @@ import { applyTempleMaterials } from './temple/materials';
 import { SunBeams } from './temple/light';
 import { CardField, crossedCards, flowerCard, grassGenerator, flowerGenerator, bushGeometry, vineGeometry, Birds, setFoliageTime } from './world/foliage';
 import { ThirdPersonCamera, TEMPLE_RIG } from './player/camera';
+import { Mentor } from './player/mentorNpc';
+import { ground } from './world/ground';
 import { PLAY, COLOSSUS_POS, SITES, terrainHeight } from './world/heightfield';
 
 type Quality = 'high' | 'low';
@@ -284,6 +286,19 @@ async function main() {
   player.setFacing(tpc.yaw + Math.PI);
   tpc.snap(player.position);
 
+  // The mentor exists only in the temple opening: standing ahead and to the right of the protagonist,
+  // turned toward him, in his two-handed guard. Not a companion; no other scene loads him.
+  let mentor: Mentor | null = null;
+  if (sceneName === 'temple') {
+    ui.status.textContent = 'Summoning the mentor';
+    await frame();
+    mentor = await Mentor.load(import.meta.env.BASE_URL);
+    const mx = startPos.x + 1.4, mz = startPos.z - 2.4;
+    const my = Math.max(ground.height(mx, mz), colliders.floorAt(mx, mz, ground.height(mx, mz) + 2.5));
+    mentor.place(mx, my, mz, Math.atan2(startPos.x - mx, startPos.z - mz) - 0.35, colliders);
+    scene.add(mentor.object);
+  }
+
   ui.status.textContent = 'Preparing shaders';
   await frame();
   const updateWorld = (t: number) => worldUpdate(t, camera.position, player.position);
@@ -340,6 +355,7 @@ async function main() {
   const update = (dt: number) => {
     t += dt;
     player.update(dt, input, tpc.yaw, started);
+    mentor?.update(dt);
     if (debugCam) { camera.position.fromArray(debugCam[0]); camera.lookAt(...debugCam[1]); }
     else tpc.update(dt, input, player.position, Math.hypot(player.velocity.x, player.velocity.z));
     setVegetationTime(t);
@@ -373,7 +389,7 @@ async function main() {
   // Hooks used by automated playtests and screenshot capture.
   Object.assign(window, {
     __tlc: {
-      ready: true, stats, start, player, tpc, input, renderer, scene, camera, post,
+      ready: true, stats, start, player, mentor, tpc, input, renderer, scene, camera, post,
       pause: (p: boolean) => { paused = p; renderer.domElement.style.visibility = p ? 'hidden' : 'visible'; },
       /** Deterministic capture for automated tests: simulate n frames, render once, return a JPEG data URL. */
       step: (n: number, dt = 1 / 30, capture = true) => {
