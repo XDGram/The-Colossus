@@ -177,13 +177,24 @@ export function dressCompound(group: THREE.Group, colliders: Colliders, height: 
 
   // Hanging paper lanterns under the eaves of the hall and along the corridors.
   const lanternGeo = () => new THREE.LatheGeometry([0.02, 0.16, 0.24, 0.27, 0.24, 0.16, 0.02].map((r, i) => new THREE.Vector2(r, i * 0.1)), 12);
-  const hang = (x: number, y: number, z: number) => {
-    push(MAT.glow, lanternGeo().translate(x, y - 0.6, z));
-    push(MAT.timber, new THREE.CylinderGeometry(0.012, 0.012, 0.5, 4).translate(x, y - 0.05, z));
-  };
+  // Instanced (not merged) so individual lanterns can be tucked away when they crowd the camera.
+  const hangPos: THREE.Vector3[] = [];
+  const hang = (x: number, y: number, z: number) => { hangPos.push(new THREE.Vector3(x, y, z)); };
   for (let x = -15; x <= 15; x += 5) hang(x, 1.9 + 5.2 + 0.3, -50 + 9 + 2.4);
   for (const side of [-1, 1]) for (let z = -32; z <= 36; z += 8) hang(side * 37.6, 0.5 + 3.4, z);
   for (const [x, z] of [[-3.2, 47.4], [3.2, 47.4], [-3.2, 54.6], [3.2, 54.6]] as const) hang(x, 0.3 + 5.2, z);
+
+  const lanterns = new THREE.InstancedMesh(lanternGeo().translate(0, -0.6, 0), MAT.glow, hangPos.length);
+  const cords = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.012, 0.012, 0.5, 4).translate(0, -0.05, 0), MAT.timber, hangPos.length);
+  const shown = hangPos.map(() => 1);
+  const im = new THREE.Matrix4(), iq = new THREE.Quaternion(), is = new THREE.Vector3();
+  const place = () => {
+    hangPos.forEach((p, i) => { is.setScalar(shown[i]); im.compose(p, iq, is); lanterns.setMatrixAt(i, im); cords.setMatrixAt(i, im); });
+    lanterns.instanceMatrix.needsUpdate = cords.instanceMatrix.needsUpdate = true;
+  };
+  place();
+  lanterns.frustumCulled = cords.frustumCulled = false;
+  group.add(lanterns, cords);
 
   for (const [mat, list] of lists) {
     const g = mergeGeometries(list, false)!;
@@ -193,6 +204,28 @@ export function dressCompound(group: THREE.Group, colliders: Colliders, height: 
     mesh.receiveShadow = true;
     group.add(mesh);
   }
+
+  const seg = new THREE.Vector3(), cp = new THREE.Vector3(), tmp = new THREE.Vector3();
+  return {
+    /** Shrinks away any lantern right in front of the camera or on the camera's line to the player. */
+    update(cam: THREE.Vector3, player: THREE.Vector3) {
+      seg.copy(player).add(tmp.set(0, 1.6, 0)).sub(cam);
+      const len2 = seg.lengthSq();
+      let changed = false;
+      hangPos.forEach((p, i) => {
+        const lp = tmp.copy(p).add(cp.set(0, -0.6, 0));
+        const t = THREE.MathUtils.clamp(lp.clone().sub(cam).dot(seg) / Math.max(len2, 1e-6), 0, 1);
+        const onLine = lp.distanceTo(cp.copy(cam).addScaledVector(seg, t)) < 0.75 && t < 0.85;
+        // Close lanterns hanging at or above eye level fill the top of the frame; tuck those away too.
+        const d = lp.distanceTo(cam);
+        const near = d < 2.4 || (d < 5 && lp.y > cam.y - 0.6);
+        const target = onLine || near ? 0 : 1;
+        const v = THREE.MathUtils.lerp(shown[i], target, 0.25);
+        if (Math.abs(v - shown[i]) > 1e-3) { shown[i] = Math.abs(v - target) < 0.02 ? target : v; changed = true; }
+      });
+      if (changed) place();
+    },
+  };
 }
 
 /** Noren: split cloth curtains hung in a doorway (world position, facing yaw). */

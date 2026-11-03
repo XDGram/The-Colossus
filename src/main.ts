@@ -15,7 +15,7 @@ import { buildTemple, templeHeight } from './temple/compound';
 import { applyTempleMaterials } from './temple/materials';
 import { SunBeams } from './temple/light';
 import { CardField, crossedCards, flowerCard, grassGenerator, flowerGenerator, bushGeometry, vineGeometry, Birds, setFoliageTime } from './world/foliage';
-import { ThirdPersonCamera } from './player/camera';
+import { ThirdPersonCamera, TEMPLE_RIG } from './player/camera';
 import { PLAY, COLOSSUS_POS, SITES, terrainHeight } from './world/heightfield';
 
 type Quality = 'high' | 'low';
@@ -115,6 +115,7 @@ async function main() {
   let worldUpdate: (t: number, cam: THREE.Vector3, pl: THREE.Vector3) => void;
   let startPos: { x: number; z: number };
   let startYaw: number;
+  let configureCamera: (c: ThirdPersonCamera, p: Player) => void = () => {};
   sun.position.copy(atmo.sunDir).multiplyScalar(300);
   sun.target.position.set(0, 0, 0);
   const templeLayers: ScatterLayer[] = [];
@@ -139,6 +140,7 @@ async function main() {
     const motes = new Motes();
     scene.add(motes.points);
     startPos = temple.start;
+    configureCamera = (c, p) => { c.setRig(TEMPLE_RIG); c.isIndoors = () => temple.isInside(p.position); };
     startYaw = temple.startYaw;
     // Volumetric sun beams through the gaps: beside the courtyard trees, between the hall and corridors,
     // through the gate and across the side paths.
@@ -276,8 +278,9 @@ async function main() {
   const player = new Player(assets.models.ranger, colliders, startPos);
   scene.add(player.object);
   const tpc = new ThirdPersonCamera(camera);
+  configureCamera(tpc, player);
   tpc.yaw = startYaw;
-  tpc.pitch = -0.02;
+  if (sceneName !== 'temple') tpc.pitch = -0.02;
   player.setFacing(tpc.yaw + Math.PI);
   tpc.snap(player.position);
 
@@ -323,6 +326,7 @@ async function main() {
     camera.updateProjectionMatrix();
     renderer.setSize(innerWidth, innerHeight);
     post.resize(innerWidth, innerHeight);
+    tpc.applyFov();
   });
 
   const clock = new THREE.Clock();

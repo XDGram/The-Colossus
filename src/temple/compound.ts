@@ -18,10 +18,23 @@ import { dressCompound, leafLitter, FallingLeaves, noren, leafCarpets } from './
  *   z +50          main gate (sanmon); side gates in the east/west walls; a breach in the NE wall
  */
 export const TEMPLE = {
-  bounds: { minX: -63, maxX: 63, minZ: -90, maxZ: 58 },
-  start: { x: 0, z: 56 },
+  bounds: { minX: -63, maxX: 63, minZ: -90, maxZ: 74 },
+  /** Outside the main gate on the approach path, so the courtyard opens up as you walk in. */
+  start: { x: 0, z: 70 },
   wall: { minX: -64, maxX: 64, minZ: -92, maxZ: 51 },
 };
+
+/**
+ * Authored camera positions for the opening (used by the future cutscene system; previewable now).
+ * Each is a camera position and a look-at target in world space.
+ */
+export const CINEMATIC: { name: string; pos: [number, number, number]; look: [number, number, number] }[] = [
+  { name: 'reveal-start', pos: [0, 11, 98], look: [0, 4, 40] },          // high and wide on the approach, gate framing the courtyard
+  { name: 'reveal-end', pos: [0, 3.2, 58], look: [0, 4.5, -40] },        // pushed through the gate, hall at the end of the axis
+  { name: 'courtyard-establish', pos: [-19, 1.2, 39], look: [4, 5, -45] }, // low corner, across the lanterns to the hall
+  { name: 'temple-closeup', pos: [3, 1.6, -30], look: [0, 9.5, -46] },    // foot of the stairs, up at the eaves and brackets
+  { name: 'boss-arrival', pos: [0, 7.5, -36], look: [0, 0, 30] },         // from the hall veranda down the whole courtyard
+];
 
 export function templeHeight(x: number, z: number) {
   const w = TEMPLE.wall;
@@ -46,6 +59,7 @@ export interface Temple {
   treeGold: boolean[];
   falling: FallingLeaves;
   start: { x: number; z: number };
+  isInside(p: THREE.Vector3): boolean;
   startYaw: number;
   update(cam: THREE.Vector3, player: THREE.Vector3): void;
 }
@@ -139,7 +153,12 @@ export function buildTemple(colliders: Colliders, quality: 'high' | 'low'): Temp
   ground.height = templeHeight;
   ground.normal = templeNormal;
   ground.water = () => -1e6;
-  ground.clamp = (x, z) => [THREE.MathUtils.clamp(x, TEMPLE.bounds.minX, TEMPLE.bounds.maxX), THREE.MathUtils.clamp(z, TEMPLE.bounds.minZ, TEMPLE.bounds.maxZ)];
+  ground.clamp = (x, z) => {
+    const cz = THREE.MathUtils.clamp(z, TEMPLE.bounds.minZ, TEMPLE.bounds.maxZ);
+    // South of the wall only the approach path is walkable.
+    const half = cz > TEMPLE.wall.maxZ + 0.5 ? 5.5 : TEMPLE.bounds.maxX;
+    return [THREE.MathUtils.clamp(x, Math.max(TEMPLE.bounds.minX, -half), Math.min(TEMPLE.bounds.maxX, half)), cz];
+  };
   ground.solid = (x, y, z) => colliders.blocks(x, y, z);
 
   const group = new THREE.Group();
@@ -198,7 +217,7 @@ export function buildTemple(colliders: Colliders, quality: 'high' | 'low'): Temp
       }
     };
     pave(-30, -36, 30, 44);           // central courtyard
-    pave(-3, 44, 3, 64);              // through the main gate
+    pave(-3, 44, 3, 104);             // through the main gate and down the approach
     pave(30, -2, 66, 2);              // east side-gate path
     pave(-66, -2, -30, 2);            // west side-gate path
     pave(-3, -88, 3, -60);            // behind the hall
@@ -213,7 +232,8 @@ export function buildTemple(colliders: Colliders, quality: 'high' | 'low'): Temp
   // ---- Perimeter wall (tsuiji): plaster on a stone footing with a tiled cap; gaps for gates ----
   {
     const parts: THREE.BufferGeometry[] = [], caps: THREE.BufferGeometry[] = [], feet: THREE.BufferGeometry[] = [];
-    const H = 3.2, T = 1.0;
+    // Tall enough to close off the outside at eye level; only distant rooftops and the hills show above it.
+    const H = 5.4, T = 1.0;
     const run = (x0: number, z0: number, x1: number, z1: number) => {
       const len = Math.hypot(x1 - x0, z1 - z0), cx = (x0 + x1) / 2, cz = (z0 + z1) / 2, ang = Math.atan2(z1 - z0, x1 - x0);
       const m = new THREE.Matrix4().makeRotationY(-ang).setPosition(cx, 0, cz);
@@ -422,7 +442,7 @@ export function buildTemple(colliders: Colliders, quality: 'high' | 'low'): Temp
 
   // ---- Courtyard dressing: stone lanterns on the axis, incense burner, banners, barrels, pottery ----
   {
-    const stoneParts: THREE.BufferGeometry[] = [], glowParts: THREE.BufferGeometry[] = [];
+    const stoneParts: THREE.BufferGeometry[] = [], glowParts: THREE.BufferGeometry[] = [], emberParts: THREE.BufferGeometry[] = [];
     const lantern = (x: number, z: number, s = 1) => {
       stoneParts.push(new THREE.BoxGeometry(0.9 * s, 0.3 * s, 0.9 * s).translate(x, 0.15 * s, z));
       stoneParts.push(new THREE.CylinderGeometry(0.16 * s, 0.2 * s, 1.1 * s, 8).translate(x, 0.85 * s, z));
@@ -432,20 +452,24 @@ export function buildTemple(colliders: Colliders, quality: 'high' | 'low'): Temp
       colliders.addCircle(x, z, 0.5 * s, 0, 2.4 * s);
     };
     for (const z of [36, 22, 8, -6, -20]) for (const x of [-6.5, 6.5]) lantern(x, z, 1.1);
+    for (const z of [60, 74, 90]) for (const x of [-4.6, 4.6]) lantern(x, z, 1.0);  // the approach outside the gate
     for (const x of [-12, 12]) lantern(x, -34, 1.4);
     // Incense burner.
     stoneParts.push(new THREE.CylinderGeometry(1.2, 1.4, 0.5, 12).translate(0, 0.25, -26));
     stoneParts.push(new THREE.CylinderGeometry(1.0, 0.7, 0.8, 12).translate(0, 0.9, -26));
-    glowParts.push(new THREE.CylinderGeometry(0.85, 0.85, 0.05, 12).translate(0, 1.32, -26));
+    // Ash bed with a few dim embers (a full glowing disc read as a bright blob from the camera).
+    stoneParts.push(new THREE.CylinderGeometry(0.88, 0.88, 0.06, 14).translate(0, 1.29, -26));
+    for (const [ex, ez] of [[0.1, -0.15], [-0.25, 0.2], [0.3, 0.25]]) emberParts.push(new THREE.SphereGeometry(0.07, 6, 4).scale(1, 0.4, 1).translate(ex, 1.33, -26 + ez));
     colliders.addCircle(0, -26, 1.4, 0, 1.4);
     const m1 = new THREE.Mesh(mergeGeometries(stoneParts.map((g) => g.toNonIndexed()), false)!, MAT.stone);
     m1.castShadow = true; m1.receiveShadow = true;
     const m2 = new THREE.Mesh(mergeGeometries(glowParts.map((g) => g.toNonIndexed()), false)!, MAT.glow);
-    group.add(m1, m2);
+    const m3 = new THREE.Mesh(mergeGeometries(emberParts.map((g) => g.toNonIndexed()), false)!, new THREE.MeshStandardMaterial({ color: 0x2a1408, emissive: new THREE.Color(0xff7a2a), emissiveIntensity: 0.9 }));
+    group.add(m1, m2, m3);
 
   }
 
-  dressCompound(group, colliders, templeHeight);
+  const dressing = dressCompound(group, colliders, templeHeight);
 
   // ---- The wider settlement: houses with curved hip roofs on the slopes outside the walls (beyond reach) ----
   {
@@ -461,6 +485,18 @@ export function buildTemple(colliders: Colliders, quality: 'high' | 'low'): Temp
       }
       return g;
     };
+    // A small hamlet flanking the approach road outside the gate, set back from the path.
+    const approach: [number, number, number, number, number, number][] = [
+      [-19, 74, 9, 6, 3.0, 0.08], [-27, 92, 11, 7, 3.4, -0.05], [-16, 112, 8, 6, 2.8, 0.12],
+      [21, 80, 10, 6.5, 3.2, -0.1], [30, 101, 12, 7, 3.6, 0.04], [18, 120, 9, 6, 3.0, -0.06], [-34, 128, 10, 7, 3.2, 0.1],
+    ];
+    for (const [x, z, w, d, h, rot] of approach) {
+      const m = new THREE.Matrix4().makeRotationY(rot).setPosition(x, templeHeight(x, z) - 0.2, z);
+      walls.push(new THREE.BoxGeometry(w, h, d).translate(0, h / 2, 0).applyMatrix4(m).toNonIndexed());
+      timber.push(new THREE.BoxGeometry(w + 0.1, 0.9, d + 0.1).translate(0, 0.45, 0).applyMatrix4(m).toNonIndexed());
+      for (const s of [-1, 1]) timber.push(new THREE.BoxGeometry(0.25, h, d + 0.12).translate(s * w / 2, h / 2, 0).applyMatrix4(m).toNonIndexed());
+      roofs.push(hipGeo(w + 2.6, d + 2.6, 2.6).translate(0, h, 0).applyMatrix4(m).toNonIndexed());
+    }
     for (let i = 0; i < 270; i++) {
       // Clustered hamlets rather than an even scatter.
       const hub = Math.floor(rnd() * 9), ha = hub * 0.7 + 0.3, hr = 110 + (hub % 4) * 70;
@@ -498,7 +534,9 @@ export function buildTemple(colliders: Colliders, quality: 'high' | 'low'): Temp
     colliders.addCircle(x, z, 0.6 * s * 0.4, 0, 6);
     treeGold.push(Math.abs(x) < 70 && z > -100 && z < 60 ? true : rnd() < 0.35);
   };
-  for (const [x, z, s] of [[-24, -34, 5.2], [24, -36, 5.0], [-26, 40, 4.6], [28, 38, 4.8], [16, -78, 5.4], [-14, -84, 4.8], [-48, -66, 5], [50, -56, 4.6], [-50, 44, 4.4], [52, 40, 4.6], [-27, 6, 4.2], [-56, -46, 4.8], [56, 2, 4.6], [-20, -66, 4.4], [46, -82, 4.8], [-58, 36, 4.2]] as const) tree(x, z, s);
+  for (const [x, z, s] of [[-24, -34, 5.2], [24, -36, 5.0], [-26, 40, 4.6], [28, 38, 4.8], [16, -78, 5.4], [-14, -84, 4.8], [-48, -66, 5], [50, -56, 4.6], [-50, 44, 4.4], [52, 40, 4.6], [-27, 6, 4.2], [-56, -46, 4.8], [56, 2, 4.6], [-20, -66, 4.4], [46, -82, 4.8], [-58, 36, 4.2],
+    // Along the approach: a few trees framing the road, none on it.
+    [-11, 64, 3.8], [12, 70, 4.2], [-9, 86, 3.6], [10, 96, 4.0], [-24, 104, 4.4], [27, 116, 4.2], [-8, 120, 3.4]] as const) tree(x, z, s);
   for (let i = 0; i < 320; i++) {
     const a = rnd() * Math.PI * 2, r = 80 + rnd() * 320;
     const x = Math.cos(a) * r * 1.2, z = -20 + Math.sin(a) * r;
@@ -527,12 +565,24 @@ export function buildTemple(colliders: Colliders, quality: 'high' | 'low'): Temp
     group, buildings, treeSpots, treeGold, falling,
     start: TEMPLE.start,
     startYaw: 0,
+    isInside: (p) => buildings.some((bl) => bl.contains(p.x, p.z, 0.2) && p.y > bl.spec.base - 0.6 && p.y < bl.spec.base + bl.spec.wallH),
     update(cam, player) {
-      // Roof cut-away for the building the player is in; interior detail and lights only near the camera.
+      dressing.update(cam, player);
+      // Roof cut-away for the building the player is in, and for any building whose roof sits between the
+      // camera and the player; interior detail and lights only near the camera.
       let lit = 0;
       for (const bl of buildings) {
         const inside = bl.contains(player.x, player.z, 0.4);
-        bl.roof.visible = !inside;
+        let blocking = false;
+        if (!inside) {
+          const margin = (bl.spec.veranda ?? 0) + bl.spec.roof.overhang;
+          const top = bl.spec.base + bl.spec.wallH + bl.spec.roof.height + 2;
+          for (let k = 1; k < 8 && !blocking; k++) {
+            const t = k / 8, x = cam.x + (player.x - cam.x) * t, z = cam.z + (player.z - cam.z) * t, y = cam.y + (player.y + 1.6 - cam.y) * t;
+            if (y < top && y > bl.spec.base + bl.spec.wallH * 0.5 && bl.contains(x, z, margin)) blocking = true;
+          }
+        }
+        bl.roof.visible = !inside && !blocking;
         const dist = Math.hypot(cam.x - bl.centre.x, cam.z - bl.centre.z);
         bl.detail.visible = dist < 70;
         if (bl.light) {
