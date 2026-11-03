@@ -146,13 +146,33 @@ export function dressMentor(model: THREE.Object3D, scan?: HeadScan): MentorRig {
     return { cx: (minX + maxX) / 2, cz: (minZ + maxZ) / 2, rx: (maxX - minX) / 2, rz: (maxZ - minZ) / 2 };
   };
 
+  /** Plaited straw: concentric courses of short angled strands, alternating direction like a woven sedge hat. */
+  const strawTex = (() => {
+    const S = 1024, cv = document.createElement('canvas'); cv.width = cv.height = S;
+    const g2 = cv.getContext('2d')!;
+    g2.fillStyle = '#6e5a3a'; g2.fillRect(0, 0, S, S);
+    const rr = mulberry32(55);
+    for (let r = 6; r < S / 2; r += 7) {
+      const n = Math.floor((2 * Math.PI * r) / 7), dir = (Math.floor(r / 7) % 2 ? 1 : -1);
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * Math.PI * 2 + rr() * 0.01, x = S / 2 + Math.cos(a) * r, y = S / 2 + Math.sin(a) * r;
+        const t = 140 + rr() * 70;
+        g2.strokeStyle = `rgb(${t | 0},${(t * 0.82) | 0},${(t * 0.55) | 0})`; g2.lineWidth = 3.2 + rr() * 1.2;
+        g2.beginPath(); g2.moveTo(x - Math.sin(a) * 4 * dir - Math.cos(a) * 3, y + Math.cos(a) * 4 * dir - Math.sin(a) * 3);
+        g2.lineTo(x + Math.sin(a) * 4 * dir + Math.cos(a) * 3, y - Math.cos(a) * 4 * dir + Math.sin(a) * 3); g2.stroke();
+      }
+      g2.strokeStyle = 'rgba(40,28,14,0.35)'; g2.lineWidth = 1; g2.beginPath(); g2.arc(S / 2, S / 2, r + 3.5, 0, Math.PI * 2); g2.stroke();
+    }
+    const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8;
+    return t;
+  })();
   const mats = {
     cloth: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, side: THREE.DoubleSide, name: 'mentor-cloth' }),
     hard: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, metalness: 0.15, name: 'mentor-hard' }),
     metal: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.4, metalness: 0.8, name: 'mentor-metal' }),
     skin: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.68, name: 'mentor-skin' }),
     hair: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, name: 'mentor-hair' }),
-    straw: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, side: THREE.DoubleSide, name: 'mentor-straw' }),
+    straw: new THREE.MeshStandardMaterial({ vertexColors: true, map: strawTex, roughness: 0.92, side: THREE.DoubleSide, name: 'mentor-straw' }),
   };
   type M = keyof typeof mats;
   const groups = new Map<string, { bone: string; mat: M; geos: THREE.BufferGeometry[] }>();
@@ -268,8 +288,10 @@ export function dressMentor(model: THREE.Object3D, scan?: HeadScan): MentorRig {
     const e = P(`lowerarm_${side}`), w = P(`hand_${side}`);
     const fl = e.distanceTo(w);
     const Fl = frame(e, w);
-    for (let k = 0; k < 6; k++) {
-      const band = new THREE.CylinderGeometry(0.044, 0.046, 0.04, 12, 1, true).rotateZ(-Math.PI / 2).rotateX(0.25 * (k % 2 ? 1 : -1)).translate(fl * (0.25 + k * 0.12), 0, 0);
+    for (let k = 0; k < 8; k++) {
+      // Wraps run from mid-forearm over the wrist bone, tapering, so skin meets cloth without a hard edge.
+      const rr = 0.044 - Math.max(0, k - 5) * 0.003;
+      const band = new THREE.CylinderGeometry(rr, rr + 0.002, 0.04, 12, 1, true).rotateZ(-Math.PI / 2).rotateX(0.25 * (k % 2 ? 1 : -1)).translate(fl * (0.25 + k * 0.105), 0, 0);
       add(`lowerarm_${side}`, 'cloth', paint(band, flat(C.hakama)), Fl);
     }
     if (side === 'r') {
@@ -294,16 +316,26 @@ export function dressMentor(model: THREE.Object3D, scan?: HeadScan): MentorRig {
   // ---------------- Hakama: wide pleated trouser-skirt, one flared shell per leg ----------------
   for (const side of ['l', 'r']) {
     const hip = P(`thigh_${side}`), knee = P(`calf_${side}`), ankle = P(`foot_${side}`);
-    const up = new THREE.CylinderGeometry(0.13, 0.18, hip.distanceTo(knee) * 1.25, 36, 3, true);
+    const up = new THREE.CylinderGeometry(0.13, 0.18, hip.distanceTo(knee) * 1.25, 72, 4, true);
+    // Knife pleats: each pleat ramps outward then folds back under the next, so the cloth overlaps in
+    // layers with a shadowed fold line, rather than reading as a smooth tube. Pleats loosen toward the hem.
+    const NP = 9;
+    const phaseOf = (a: number) => { const f = ((a / (Math.PI * 2)) * NP + 10) % 1; return f; };
     const pleat = (g: THREE.BufferGeometry) => {
       const p = g.getAttribute('position') as THREE.BufferAttribute;
-      for (let i = 0; i < p.count; i++) { const a = Math.atan2(p.getZ(i), p.getX(i)); const k = 1 + Math.max(0, Math.sin(a * 7)) * 0.075 + Math.sin(a * 17) * 0.012; p.setX(i, p.getX(i) * k); p.setZ(i, p.getZ(i) * k); }
+      const y0 = g.boundingBox ? 0 : 0;
+      void y0;
+      for (let i = 0; i < p.count; i++) {
+        const a = Math.atan2(p.getZ(i), p.getX(i)), f = phaseOf(a), t = THREE.MathUtils.clamp(0.5 - p.getY(i) * 2, 0, 1);
+        const k = 1 + f * (0.09 + 0.05 * t) + Math.sin(a * 3 + 1) * 0.02;
+        p.setX(i, p.getX(i) * k); p.setZ(i, p.getZ(i) * k);
+      }
       g.computeVertexNormals();
-      return paint(g, (q) => (Math.sin(Math.atan2(q.z, q.x) * 7) > 0.6 ? C.hakama.clone().multiplyScalar(0.7) : C.hakama), 0.04);
+      return paint(g, (q) => { const f = phaseOf(Math.atan2(q.z, q.x)); return C.hakama.clone().multiplyScalar(f > 0.86 ? 0.5 : 0.78 + f * 0.3); }, 0.03);
     };
     const Fu = frame(hip, knee, new THREE.Vector3(0, 0, 1));
     add(`thigh_${side}`, 'cloth', pleat(up.rotateZ(Math.PI / 2).translate(hip.distanceTo(knee) * 0.6, 0, 0)), Fu);
-    const lo = new THREE.CylinderGeometry(0.185, 0.2, knee.distanceTo(ankle) * 1.0, 36, 3, true);
+    const lo = new THREE.CylinderGeometry(0.19, 0.22, knee.distanceTo(ankle) * 1.0, 72, 4, true);
     const Fl = frame(knee, ankle, new THREE.Vector3(0, 0, 1));
     add(`calf_${side}`, 'cloth', pleat(lo.rotateZ(Math.PI / 2).translate(knee.distanceTo(ankle) * 0.42, 0, 0)), Fl);
   }
@@ -363,7 +395,7 @@ export function dressMentor(model: THREE.Object3D, scan?: HeadScan): MentorRig {
     const eyeC = [new THREE.Vector3(-0.86, 1.67, 1.75), new THREE.Vector3(0.64, 1.66, 1.78)];
     const eyeGeos: THREE.BufferGeometry[] = [];
     for (const e of eyeC) {
-      const a = 0.21, bUp = 0.045, bDn = 0.055;
+      const a = 0.22, bUp = 0.05, bDn = 0.058;
       for (let i = 0; i < pos.count; i++) {
         const x = pos.getX(i) - e.x, y = pos.getY(i) - e.y, z = pos.getZ(i);
         if (z < e.z - 0.35) continue;
@@ -384,12 +416,13 @@ export function dressMentor(model: THREE.Object3D, scan?: HeadScan): MentorRig {
       for (let i = 0; i < ep.count; i++) {
         const z = ep.getZ(i) / R; // 1 = straight ahead
         const ang = Math.acos(Math.min(1, Math.max(-1, z)));
-        const c = ang < 0.26 ? srgb(0.02, 0.018, 0.015) : ang < 0.62 ? srgb(0.22, 0.16, 0.11).lerp(srgb(0.1, 0.08, 0.06), (ang - 0.26) / 0.36) : srgb(0.5, 0.45, 0.4).lerp(srgb(0.45, 0.33, 0.3), Math.max(0, ang - 0.9) * 0.5);
+        const c = ang < 0.26 ? srgb(0.02, 0.018, 0.015) : ang < 0.62 ? srgb(0.22, 0.16, 0.11).lerp(srgb(0.1, 0.08, 0.06), (ang - 0.26) / 0.36) : srgb(0.5, 0.45, 0.4).lerp(srgb(0.3, 0.22, 0.19), Math.min(1, Math.max(0, ang - 0.75) * 1.2));
         if (ang > 0.6 && ang < 0.66) c.multiplyScalar(0.5); // limbal ring
         col.set([c.r, c.g, c.b], i * 3);
       }
       eye.setAttribute('color', new THREE.BufferAttribute(col, 3));
-      eye.translate(e.x, e.y - 0.005, e.z - 0.36 + R * 0.88);
+      // Front of the eyeball sits just behind the lid rims (no bulge); centred so the iris looks straight ahead.
+      eye.translate(e.x, e.y - 0.004, e.z - 0.085 - R);
       eyeGeos.push(eye);
     }
     g.computeVertexNormals();
@@ -409,7 +442,7 @@ export function dressMentor(model: THREE.Object3D, scan?: HeadScan): MentorRig {
     mesh.applyMatrix4(model.matrixWorld);
     bones['Head'].attach(mesh);
     // Eyeballs share the head's transform; wet, glossy surface so they catch the light.
-    const eyeMat = new THREE.MeshPhysicalMaterial({ vertexColors: true, roughness: 0.18, clearcoat: 1, clearcoatRoughness: 0.05 });
+    const eyeMat = new THREE.MeshPhysicalMaterial({ vertexColors: true, roughness: 0.35, clearcoat: 0.35, clearcoatRoughness: 0.25 });
     const eg = mergeGeometries(eyeGeos.map((x) => x.toNonIndexed()), false)!;
     eg.translate(-tipV.x, -tipV.y, -tipV.z).scale(s, s, s).translate(target.x, target.y, target.z);
     const eyes = new THREE.Mesh(eg, eyeMat);
@@ -513,7 +546,8 @@ export function dressMentor(model: THREE.Object3D, scan?: HeadScan): MentorRig {
       const ring = Math.sin((r + warp) * 380 + fbm(a * 3, r * 20, 2) * 2.5);
       const spoke = Math.sin(a * (100 + 20 * Math.sin(r * 30)) + fbm(r * 50, a, 2) * 3);
       const strand = 0.8 + 0.4 * fbm(Math.floor(r * 140) * 0.37, Math.floor(a * 30) * 0.21, 1);
-      let c = ((ring * 0.6 + spoke * 0.4) > 0.15 ? C.straw : C.strawDark).clone().multiplyScalar(0.72 * strand);
+      void ring; void spoke;
+      let c = new THREE.Color(1, 1, 1).multiplyScalar(0.85 * strand);
       c.multiplyScalar(0.8 + fbm(q.x * 30, q.z * 30, 2) * 0.35);              // grime and rain stains
       c.lerp(srgb(0.66, 0.62, 0.52), 0.35 * Math.max(0, 1 - r / (R * 0.7)));   // sun-bleached crown
       const da = ((a - 2.3 + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
@@ -571,7 +605,8 @@ export function dressMentor(model: THREE.Object3D, scan?: HeadScan): MentorRig {
   // ---------------- Assemble ----------------
   for (const { bone, mat, geos } of groups.values()) {
     // Each part carries its own smooth normals; merging non-indexed copies keeps them (no re-faceting).
-    const g = mergeGeometries(geos.map((x) => { if (!x.getAttribute('normal')) x.computeVertexNormals(); for (const k of Object.keys(x.attributes)) if (!['position', 'normal', 'color'].includes(k)) x.deleteAttribute(k); return x.index ? x.toNonIndexed() : x; }), false)!;
+    const keepAttr = mat === 'straw' ? ['position', 'normal', 'color', 'uv'] : ['position', 'normal', 'color'];
+    const g = mergeGeometries(geos.map((x) => { if (!x.getAttribute('normal')) x.computeVertexNormals(); for (const k of Object.keys(x.attributes)) if (!keepAttr.includes(k)) x.deleteAttribute(k); return x.index ? x.toNonIndexed() : x; }), false)!;
     const mesh = new THREE.Mesh(g, mats[mat]);
     mesh.castShadow = mesh.receiveShadow = true;
     mesh.applyMatrix4(model.matrixWorld);
@@ -588,7 +623,7 @@ export function dressMentor(model: THREE.Object3D, scan?: HeadScan): MentorRig {
     mat.onBeforeCompile = (sh) => {
       sh.fragmentShader = sh.fragmentShader.replace('#include <map_fragment>', `#include <map_fragment>
         { float l = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
-          ${feet ? 'diffuseColor.rgb = vec3(l) * vec3(0.42, 0.38, 0.34);' : isSkin ? 'diffuseColor.rgb = mix(diffuseColor.rgb, vec3(l) * vec3(1.1, 0.82, 0.64), 0.4) * vec3(0.86, 0.74, 0.64);' : 'diffuseColor.rgb = vec3(l) * vec3(0.3, 0.33, 0.42);'} }`);
+          ${feet ? 'diffuseColor.rgb = vec3(l) * vec3(0.42, 0.38, 0.34);' : isSkin ? 'diffuseColor.rgb = mix(diffuseColor.rgb, vec3(l) * vec3(1.1, 0.82, 0.64), 0.55) * vec3(0.74, 0.62, 0.52);' : 'diffuseColor.rgb = vec3(l) * vec3(0.3, 0.33, 0.42);'} }`);
     };
     mat.customProgramCacheKey = () => `mentor-base-${feet}-${isSkin}`;
     m.material = mat;

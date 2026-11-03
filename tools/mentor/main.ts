@@ -52,7 +52,7 @@ headMat.onBeforeCompile = (sh) => {
       // Dark hair, brows and stubble in the scan turn grey; skin weathered toward a sun-worn tan.
       float hairMask = 1.0 - smoothstep(0.1, 0.26, l);
       vec3 skin = mix(diffuseColor.rgb, vec3(l) * vec3(1.1, 0.82, 0.64), 0.4) * vec3(0.86, 0.74, 0.64);
-      diffuseColor.rgb = mix(skin, vec3(0.5, 0.49, 0.47), hairMask * 0.85); }`);
+      diffuseColor.rgb = mix(skin * 0.92, vec3(0.5, 0.49, 0.47), hairMask * 0.85); }`);
 };
 const scan: HeadScan | undefined = new URLSearchParams(location.search).has('procedural') ? undefined : { geometry: headGeo!, material: headMat };
 const mentor = clone(peasant.scene); setup(mentor); scene.add(mentor);
