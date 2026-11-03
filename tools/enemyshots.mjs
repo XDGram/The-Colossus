@@ -8,7 +8,7 @@ p.on('pageerror', (e) => console.log('ERR', e.message));
 await p.goto('http://localhost:5173/tools/enemyprev/' + (process.env.Q || ''));
 await p.waitForFunction(() => document.title === 'ready', null, { polling: 500 });
 for (const [name, ...args] of JSON.parse(process.env.SHOTS || '[]')) {
-  const url = await p.evaluate((a) => window.shot(...a), args);
+  const url = name.startsWith('T') ? await p.evaluate((a) => window.tshot(...a), args) : await p.evaluate((a) => window.shot(...a), args);
   fs.writeFileSync(`${out}/${name}.jpg`, Buffer.from(url.split(',')[1], 'base64'));
 }
 for (const [which, clip] of JSON.parse(process.env.ANALYSE || '[]')) fs.writeFileSync(`${out}/${which}_${clip}.json`, JSON.stringify(await p.evaluate((a) => window.analyse(...a), [which, clip])));

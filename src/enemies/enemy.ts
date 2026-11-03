@@ -15,7 +15,7 @@ export type MoveName<K extends EnemyKind> = K extends 'runner' ? RunnerMove : Br
 const STANCE: Record<'carry' | 'guard' | 'lean', { g: [number, number, number]; d: [number, number, number] }> = {
   carry: { g: [0.22, 0.44, 1.0], d: [0.18, 0.3, 0.94] },     // ready carry: held upright before the right shoulder
   guard: { g: [0.1, 0.45, 1.25], d: [-0.68, 0.18, 0.71] },   // haft raised diagonally across the chest to block
-  lean: { g: [0.06, 0.55, 0.92], d: [0, -0.5, 0.87] },      // head planted on the ground ahead, leaning on it
+  lean: { g: [0.06, 0.55, 0.92], d: [0, 0.78, -0.62] },      // head planted on the ground ahead, leaning on it
 };
 
 /**
@@ -73,6 +73,8 @@ export class Enemy<K extends EnemyKind = EnemyKind> {
     return m.segs.reduce((s, g) => s + ((g.to ?? this.clips.get(g.clip)!.duration) - (g.from ?? 0)), 0) / (m.speed ?? 1);
   }
   play(name: MoveName<K>, fade = 0.2) {
+    // Kneeling moves change the club stance a lot: give the blend more time.
+    if (fade > 0 && this.moves[name].club === 'lean') fade = Math.max(fade, 0.35);
     if (this.pivot.position.lengthSq() > 0 || this.pivot.rotation.y !== 0) this.bakePivot();
     this.prev = fade > 0 ? { move: this.move, time: this.time } : null;
     this.clubFrom = this.clubPrev;
@@ -150,14 +152,25 @@ export class Enemy<K extends EnemyKind = EnemyKind> {
       g = wpos(this.mount!); d = new THREE.Vector3(0, 1, 0).applyQuaternion(wquat(this.mount!)).normalize();
     } else {
       const s = STANCE[mode], o = wpos(this.pivot);
-      g = o.clone().addScaledVector(right, s.g[0]).addScaledVector(fwd, s.g[1]).addScaledVector(up, s.g[2] - lower * 0.42);
+      // Kneeling (lower > 0): the planted club moves forward, clear of the knees, as the body goes down.
+      g = o.clone().addScaledVector(right, s.g[0]).addScaledVector(fwd, s.g[1] + Math.min(1, lower) * 0.08).addScaledVector(up, s.g[2] - lower * 0.42);
       d = new THREE.Vector3().addScaledVector(right, s.d[0]).addScaledVector(fwd, s.d[1]).addScaledVector(up, s.d[2]).normalize();
       if (mode === 'lean') d.lerp(up.clone().multiplyScalar(-1).addScaledVector(fwd, 0.25), Math.min(1, lower) * 0.5).normalize();
     }
     // Blend from the previous move's club pose across the cross-fade.
-    if (this.clubFrom && w < 1) { g = this.clubFrom.g.clone().lerp(g, w); d = this.clubFrom.d.clone().lerp(d, w).normalize(); }
+    if (this.clubFrom && w < 1) {
+      // The club settles into the new stance in the first half of the blend (ahead of the body).
+      w = THREE.MathUtils.smoothstep(w, 0, 0.5);
+      // Rotate (not average) the club direction between stances, so opposed directions never collapse.
+      // Large stance changes pass through an upright club (both hands stay on their own side of the body).
+      const rot = (a: THREE.Vector3, b: THREE.Vector3, k: number) => a.clone().applyQuaternion(new THREE.Quaternion().slerp(new THREE.Quaternion().setFromUnitVectors(a, b), k)).normalize();
+      const from = this.clubFrom.d.clone(), mid = up.clone().addScaledVector(fwd, 0.3).normalize();
+      d = from.angleTo(d) > Math.PI / 3 ? (w < 0.5 ? rot(from, mid, w * 2) : rot(mid, d, w * 2 - 1)) : rot(from, d, w);
+      // The previous grip is kept relative to the chest, so it follows the body (e.g. dropping into a kneel).
+      g = wpos(this.bones['spine_03']).add(this.clubFrom.g).lerp(g, w);
+    }
     this.lastGrip = this.grip!.solve(g, d, this.groundY, tilt ? TwoHandGrip.smashTilt(clipTime) : 0, true);
-    this.clubPrev = { g: wpos(this.mount!), d: new THREE.Vector3(0, 1, 0).applyQuaternion(wquat(this.mount!)).normalize() };
+    this.clubPrev = { g: wpos(this.mount!).sub(wpos(this.bones['spine_03'])), d: new THREE.Vector3(0, 1, 0).applyQuaternion(wquat(this.mount!)).normalize() };
   }
 
   /** Hits active at the current move time. */

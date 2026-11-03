@@ -99,9 +99,11 @@ export function applyLayer(name: LayerName, t: number, dur: number, ctx: LayerCt
       // Down to one knee, then slumps forward over the planted club and stays there.
       const k = ss(t, 0.05, 0.45), s = ss(t, 0.7, 1.9);
       kneel(ctx, k, 0.06 * s);
-      rotateWorld(B['spine_01'], ctx.right, 0.18 * s);
-      rotateWorld(B['spine_02'], ctx.right, 0.25 * k + 0.32 * s);
-      rotateWorld(B['neck_01'], ctx.right, 0.2 * k + 0.4 * s);
+      // Forward bend axis (up -> forward), independent of the right vector's sign.
+      const pitch = new THREE.Vector3().crossVectors(ctx.up, ctx.fwd).normalize();
+      rotateWorld(B['spine_01'], pitch, 0.18 * s);
+      rotateWorld(B['spine_02'], pitch, 0.25 * k + 0.32 * s);
+      rotateWorld(B['neck_01'], pitch, 0.2 * k + 0.4 * s);
       return { clubLower: k + 0.6 * s };
     }
     case 'smashTilt':

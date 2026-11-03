@@ -8,7 +8,7 @@ import { closeFingers, gripAt, type HandCal, wpos, wquat } from './ik';
  * of the body and above the ground, then solve both arms onto the haft and close the fingers.
  */
 export interface ClubSpec { tipLen: number; pommelLen: number; headR: number; spacing: number }
-export interface GripResult { pull: number; err: number; pen: number; tipY: number }
+export interface GripResult { pull: number; err: number; gap: number; straight: boolean; pen: number; tipY: number }
 
 const V = () => new THREE.Vector3();
 function segDist(p: THREE.Vector3, a: THREE.Vector3, b: THREE.Vector3) {
@@ -61,8 +61,8 @@ export class TwoHandGrip {
     const minY = groundY + c.headR + 0.01;
     const place = (s: number) => {
       const g = C.clone().lerp(g0, s), d = D.clone();
-      for (let round = 0; round < 4; round++) {
-        for (let it = 0; it < 4; it++) { const { worst, push } = penAt(g, d); if (worst < 0.004) break; g.add(push); }
+      for (let round = 0; round < 8; round++) {
+        for (let it = 0; it < 6; it++) { const { worst, push } = penAt(g, d); if (worst < 0.002) break; g.add(push.multiplyScalar(1.15)); }
         const tipY = g.y + d.y * c.tipLen;
         if (tipY >= minY - 0.002) break;
         const h = new THREE.Vector3(d.x, 0, d.z); if (h.lengthSq() < 1e-6) h.copy(fwd); h.normalize();
@@ -72,7 +72,7 @@ export class TwoHandGrip {
       return { g, d };
     };
     const grip = (side: 'l' | 'r') => B[`hand_${side}`].localToWorld(this.cal[side].off.clone());
-    let spacing = c.spacing;
+    let spacing = c.spacing, lastGap = 0, lastStraight = false, relaxed = false;
     const arms = (g: THREE.Vector3, d: THREE.Vector3) => {
       const gl = g.clone().addScaledVector(d, -spacing);
       let stretch = 0;
@@ -82,7 +82,8 @@ export class TwoHandGrip {
         stretch = Math.max(stretch, gripAt(B, side, this.cal[side], side === 'r' ? g : gl, d, pole));
       }
       const e = Math.max(gl.distanceTo(grip('l')), g.distanceTo(grip('r')));
-      return stretch > 0.95 ? Math.max(e, 0.01) : e;
+      lastGap = e; lastStraight = stretch > 0.95;
+      return stretch > 0.95 && !relaxed ? Math.max(e, 0.01) : e;
     };
     let s = 1, pl = place(1), err = arms(pl.g, pl.d);
     if (err > 0.002 && allowPull) {
@@ -95,8 +96,37 @@ export class TwoHandGrip {
         for (const sp of [0.11, 0.24, 0.3, 0.07]) { spacing = sp; const e = arms(pl.g, pl.d); if (e < best.err) best = { err: e, sp }; if (e <= 0.002) break; }
         spacing = best.sp; err = arms(pl.g, pl.d);
       }
+      // Last resort (e.g. mid-blend between stances): re-seat the club in the hands where they actually are,
+      // so the haft runs through both grips instead of leaving a gap.
+      if (err > 0.002) {
+        const keep = { pl, spacing, err };
+        for (let it = 0; it < 3 && err > 0.002; it++) {
+          const rG = grip('r'), lG = grip('l');
+          const span = rG.distanceTo(lG);
+          if (span < 0.05) break;
+          spacing = THREE.MathUtils.clamp(span, 0.07, 0.35);
+          pl = { g: rG, d: rG.clone().sub(lG).normalize() };
+          err = arms(pl.g, pl.d);
+        }
+        // Only keep the re-seated club if it stays out of the body.
+        if (penAt(pl.g, pl.d).worst > 0.003) { ({ pl, spacing } = keep); err = arms(pl.g, pl.d); }
+      }
+    }
+    // Never leave a visible gap: if a bent-elbow solution doesn't exist, accept a nearly straight arm.
+    if (lastGap > 0.002) {
+      relaxed = true;
+      let best = { e: lastGap, pl, s, sp: spacing };
+      for (const sp of [c.spacing, 0.11, 0.24, 0.07, 0.3]) {
+        spacing = sp;
+        let lo = 0, hi = 1;
+        for (let i = 0; i < 12; i++) { const m = (lo + hi) / 2; const p = place(m); if (arms(p.g, p.d) <= 0.002) lo = m; else hi = m; }
+        const p = place(lo), e = arms(p.g, p.d);
+        if (e < best.e) best = { e, pl: p, s: lo, sp };
+        if (e <= 0.002) break;
+      }
+      spacing = best.sp; pl = best.pl; s = best.s; err = arms(pl.g, pl.d);
     }
     closeFingers(B, 'l'); closeFingers(B, 'r');
-    return { pull: s, err, pen: penAt(pl.g, pl.d).worst, tipY: pl.g.y + pl.d.y * c.tipLen };
+    return { pull: s, err, gap: lastGap, straight: lastStraight, pen: penAt(pl.g, pl.d).worst, tipY: pl.g.y + pl.d.y * c.tipLen };
   }
 }

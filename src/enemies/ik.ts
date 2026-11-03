@@ -55,7 +55,14 @@ export function calibrateHand(bones: Record<string, THREE.Bone>, side: 'l' | 'r'
 }
 /** World rotation for a hand whose grip axis runs along D with fingers wrapping toward F. */
 export function handQuat(cal: HandCal, D: THREE.Vector3, F: THREE.Vector3) {
-  const f = F.clone().sub(D.clone().multiplyScalar(F.dot(D))).normalize();
+  let f = F.clone().sub(D.clone().multiplyScalar(F.dot(D)));
+  // F nearly parallel to the grip axis: fall back to a stable perpendicular so the hand doesn't flip.
+  if (f.lengthSq() < 0.04) {
+    const alt = Math.abs(D.y) < 0.9 ? new THREE.Vector3(0, -1, 0) : new THREE.Vector3(0, 0, 1);
+    const fa = alt.sub(D.clone().multiplyScalar(alt.dot(D))).normalize();
+    f = f.lengthSq() < 1e-6 ? fa : f.normalize().lerp(fa, 1 - Math.sqrt(f.lengthSq()) / 0.2);
+  }
+  f.normalize();
   const Bl = new THREE.Matrix4().makeBasis(cal.axis, cal.fingers, V().crossVectors(cal.axis, cal.fingers));
   const Bw = new THREE.Matrix4().makeBasis(D, f, V().crossVectors(D, f));
   return new THREE.Quaternion().setFromRotationMatrix(Bw.multiply(Bl.invert()));
@@ -67,7 +74,16 @@ export function gripAt(bones: Record<string, THREE.Bone>, side: 'l' | 'r', cal: 
   const q = handQuat(cal, D, F);
   const scale = hb.getWorldScale(V()).x;
   const wrist = grip.clone().sub(cal.off.clone().multiplyScalar(scale).applyQuaternion(q));
-  let stretch = 0;
+  let stretch = twoBone(bones[`upperarm_${side}`], bones[`lowerarm_${side}`], hb, wrist, pole);
+  // Out of reach: the shoulder reaches too (collarbone rotates up to ~17 deg toward the target).
+  const clav = bones[`clavicle_${side}`];
+  if (stretch > 0.98 && clav) {
+    const C = wpos(clav), U = wpos(bones[`upperarm_${side}`]);
+    const L1 = U.distanceTo(wpos(bones[`lowerarm_${side}`])), L2 = wpos(bones[`lowerarm_${side}`]).distanceTo(wpos(hb));
+    const deficit = wrist.distanceTo(U) - (L1 + L2) * 0.97;
+    const axis = new THREE.Vector3().crossVectors(U.clone().sub(C), wrist.clone().sub(C));
+    if (deficit > 0 && axis.lengthSq() > 1e-8) rotateWorld(clav, axis.normalize(), Math.min(0.3, deficit / Math.max(0.08, U.distanceTo(C))));
+  }
   for (let i = 0; i < 2; i++) { stretch = twoBone(bones[`upperarm_${side}`], bones[`lowerarm_${side}`], hb, wrist, pole); setWorldQuat(hb, q); }
   return stretch;
 }

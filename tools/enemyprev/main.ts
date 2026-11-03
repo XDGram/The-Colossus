@@ -47,7 +47,7 @@ const poseAt = (e: Enemy, move: string, t: number) => { place(''); e.play(move a
     poseAt(e, move, f / 30);
     e.object.updateMatrixWorld(true);
     const row: any = { f, t: +(f / 30).toFixed(3) };
-    if (e.lastGrip) Object.assign(row, { err: +e.lastGrip.err.toFixed(4), pen: +e.lastGrip.pen.toFixed(4), tipY: +e.lastGrip.tipY.toFixed(3), pull: +e.lastGrip.pull.toFixed(2) });
+    if (e.lastGrip) Object.assign(row, { err: +e.lastGrip.gap.toFixed(4), straight: e.lastGrip.straight, pen: +e.lastGrip.pen.toFixed(4), tipY: +e.lastGrip.tipY.toFixed(3), pull: +e.lastGrip.pull.toFixed(2) });
     row.reach = +Math.max(...tips.map((tp) => { const p = new THREE.Vector3().setFromMatrixPosition(tp.matrixWorld); return Math.hypot(p.x, p.z); })).toFixed(2);
     row.ang = tips.map((tp) => { const p = new THREE.Vector3().setFromMatrixPosition(tp.matrixWorld); return +(Math.atan2(p.x, p.z) * 180 / Math.PI).toFixed(0); });
     row.minY = +Math.min(...tips.map((tp) => new THREE.Vector3().setFromMatrixPosition(tp.matrixWorld).y)).toFixed(2);
@@ -63,9 +63,16 @@ const poseAt = (e: Enemy, move: string, t: number) => { place(''); e.play(move a
   for (let i = 0; i < steps; i++) {
     e.update(1 / 30); let nan = false;
     for (const bn of Object.values(e.bones)) if (!isFinite(bn.quaternion.x + bn.position.x)) nan = true;
-    out.push({ i, move: e.move, err: e.lastGrip ? +(e.lastGrip.err * 1000).toFixed(1) : null, pen: e.lastGrip ? +(e.lastGrip.pen * 1000).toFixed(1) : null, nan });
+    out.push({ i, move: e.move, err: e.lastGrip ? +(e.lastGrip.gap * 1000).toFixed(1) : null, straight: e.lastGrip?.straight, pen: e.lastGrip ? +(e.lastGrip.pen * 1000).toFixed(1) : null, nan });
   }
   return out;
+};
+/** Render the n-th 30 fps frame of a cross-fade from move a into move b. */
+(window as any).tshot = (k: 'runner' | 'breaker', a: string, b: string, n: number, yaw = 0, dist = 4.4, h = 1.3, look = 1.0) => {
+  const e = E[k]; show(k); place(''); e.play(a as never, 0); for (let i = 0; i < 18; i++) e.update(1 / 30);
+  e.play(b as never, 0.2); for (let i = 0; i <= n; i++) e.update(1 / 30);
+  cam.position.set(Math.sin(yaw) * dist, h, Math.cos(yaw) * dist); cam.lookAt(0, look, 0);
+  r.render(scene, cam); return r.domElement.toDataURL('image/jpeg', 0.9);
 };
 (window as any).info = () => ({ runner: Object.keys(E.runner.moves), breaker: Object.keys(E.breaker.moves) });
 document.title = 'ready';
