@@ -4,6 +4,7 @@ import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js
 import { terrainHeight, terrainNormal, waterY, PLAY, valleyAxis } from '../world/heightfield';
 import type { Colliders } from '../world/colliders';
 import type { Input } from '../core/input';
+import { dressWarrior } from './armour';
 
 const SPEED = { walk: 1.6, jog: 4.3, sprint: 7.2 };
 // Native ground speeds of the in-place clips, used to scale playback and avoid foot sliding.
@@ -23,6 +24,9 @@ export class Player {
 
   constructor(gltf: GLTF, private colliders: Colliders, start: { x: number; z: number }) {
     const model = cloneSkinned(gltf.scene);
+    // Armour is built in the rest pose and parented to bones, before any animation runs.
+    dressWarrior(model);
+    const seen = new Set<THREE.Material>();
     model.traverse((o) => {
       const m = o as THREE.SkinnedMesh;
       if (!m.isMesh) return;
@@ -30,7 +34,7 @@ export class Player {
       m.receiveShadow = true;
       m.frustumCulled = false;
       const mats = Array.isArray(m.material) ? m.material : [m.material];
-      for (const mat of mats as THREE.MeshStandardMaterial[]) muteOutfit(mat);
+      for (const mat of mats as THREE.MeshStandardMaterial[]) if (!seen.has(mat)) { seen.add(mat); addSunRim(mat); }
     });
     this.object.add(model);
     this.mixer = new THREE.AnimationMixer(model);
@@ -154,27 +158,23 @@ export class Player {
   }
 }
 
-/** Pulls the outfit's saturated greens toward the game's muted, weathered palette. */
-function muteOutfit(mat: THREE.MeshStandardMaterial) {
-  mat.onBeforeCompile = (sh) => {
-    sh.fragmentShader = sh.fragmentShader.replace('#include <map_fragment>', `#include <map_fragment>
-      {
-        float l = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
-        vec3 muted = mix(diffuseColor.rgb, vec3(l), 0.42) * vec3(0.95, 0.93, 0.86);
-        diffuseColor.rgb = muted;
-      }`).replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+/** Chains a warm "catching the sun" rim onto a material's existing shader patch (outfit recolour, armour). */
+function addSunRim(mat: THREE.MeshStandardMaterial) {
+  const prev = mat.onBeforeCompile;
+  const prevKey = mat.customProgramCacheKey();
+  mat.onBeforeCompile = (sh, r) => {
+    prev.call(mat, sh, r);
+    sh.fragmentShader = sh.fragmentShader.replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
       #ifdef USE_FOG
       {
-        // Catching the sun: a warm rim and lift, only where sunlight reaches the player (cloud patches).
         vec3 sunV = normalize((viewMatrix * vec4(ATMO_SUN_DIR, 0.0)).xyz);
         vec3 nV = normalize(vNormal);
         float rim = pow(1.0 - max(dot(nV, normalize(vViewPosition)), 0.0), 2.5);
         float facing = max(dot(nV, sunV), 0.0);
         float lit = smoothstep(0.5, 0.95, cloudLight(vFogWorldPos));
-        totalEmissiveRadiance += diffuseColor.rgb * vec3(1.0, 0.78, 0.5) * (rim * (0.35 + 0.9 * facing) * 1.4 + facing * 0.12) * lit;
+        totalEmissiveRadiance += max(diffuseColor.rgb, vec3(0.03)) * vec3(1.0, 0.78, 0.5) * (rim * (0.35 + 0.9 * facing) * 1.4 + facing * 0.12) * lit;
       }
       #endif`);
   };
-  mat.customProgramCacheKey = () => 'muted-outfit';
+  mat.customProgramCacheKey = () => `${prevKey}|sunrim`;
 }
-
