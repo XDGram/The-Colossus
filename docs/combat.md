@@ -275,8 +275,26 @@ Nothing here changes the timings, controls, camera or mechanics above.
 
 ### F. Time-to-kill check
 
-| Target | Fastest clean kill | Typical |
+| Target | Kills | Notes |
 |---|---|---|
-| Ash Runner (40) | Parry → riposte (45 while open) | Combo (32) + one cut (8); or riposte (30) + Cut 1 (8) + Cut 2 (8) |
-| Iron Breaker (120) | Stagger then a full combo while open (48), twice, plus one riposte | About 2.5 punish windows (48 each) |
-| Player (100) | 4 smashes (112), or 3 smashes plus a charge | About 12 Runner slashes, or 7 sweep hits |
+| Ash Runner (40) | **Parry → riposte: 45** (riposte 30 ×1.5, because a parried Runner is staggered = open) | If the riposte lands after his 1.0 s stagger ends, it deals 30: **10 more** is needed (Cut 1 + Cut 2 = 16, or Cut 3 = 16) |
+| | Full combo (32) + Cut 1 (8) = 40 | Unparried, not open |
+| Iron Breaker (120) | About 2.5 punish windows | An open full combo deals 48 |
+| Player (100) | 4 smashes (112) | 3 smashes (84) are not enough |
+| | **13 Runner slashes** (104) | 12 deal only 96 |
+| | **8 Breaker sweep hits** (12+12+14+12+12+14+12+12 = 100) | 7 deal only 88 |
+
+### G. Breaker stagger threshold
+
+The knee-drop (2.2 s) triggers when the meter reaches **100**. It decays 10/s once 2 s pass without gain, so these counts assume continuous pressure.
+
+| Source | Meter per hit | Hits to reach 100 |
+|---|---|---|
+| Normal Cut 1 / Cut 2 | 6 | 17 (102) |
+| Normal Cut 3 | 15 | 7 (105) |
+| Normal full combo (1-2-3) | 27 | 4 combos (108) |
+| Open Cut 1 / Cut 2 (×2) | 12 | 9 (108) |
+| Open full combo | 54 | 2 combos (108) |
+| From behind, Cut 1 / Cut 2 (×1.5) | 9 | 12 (108) |
+| Sweep parry | 35 | 3 parries (105) |
+| Typical mix: 2 sweep parries + 1 open full combo | 70 + 54 | 124: staggers |
