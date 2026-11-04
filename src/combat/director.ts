@@ -14,7 +14,7 @@ export class AttackDirector {
   readonly starts: [number, string][] = [];
 
   /** `visible` decides whether the player can genuinely see the warning (on screen and unobstructed). */
-  constructor(private visible: (pts: { x: number; y: number; z: number }[]) => boolean) {}
+  constructor(private visible: (pts: { x: number; y: number; z: number }[], requester: string) => boolean) {}
 
   get attackers() { return this.holders.size; }
   holds(id: string) { return this.holders.has(id); }
@@ -25,7 +25,7 @@ export class AttackDirector {
     if (this.holders.size >= DIRECTOR.maxAttackers) return false;
     if (kind === 'breaker' && [...this.holders.values()].filter((k) => k === 'breaker').length >= DIRECTOR.maxBreakers) return false;
     if (now - this.lastStart < DIRECTOR.startGap) return false;
-    if (!this.visible(tellAt)) return false;
+    if (!this.visible(tellAt, id)) return false;
     this.holders.set(id, kind); this.lastStart = now; this.starts.push([now, id]);
     return true;
   }

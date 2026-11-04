@@ -329,7 +329,8 @@ async function main() {
           for (let s = 0.2; s < d - 0.25; s += 0.15) { const p = a.clone().addScaledVector(dir, s); if (colliders.blocks(p.x, p.y, p.z) || ground.solid?.(p.x, p.y, p.z)) return true; }
           return false;
         } },
-      camera, player.position.clone(), player.facing, +(params.get('seed') || 1));
+      camera, player.position.clone(), player.facing, +(params.get('seed') || 1),
+      () => (mentor ? [{ base: mentor.object.position.clone(), radius: 0.42, bottom: 0.1, top: 1.85 }] : []));
   }
   // Development showcase of the invaders (temple only, ?enemies): no AI or combat.
   let enemyShowcase: import('./enemies/showcase').EnemyShowcase | null = null;
