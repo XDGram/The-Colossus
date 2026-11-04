@@ -32,7 +32,7 @@ export const PLAYER_MOVES: Record<PlayerMoveName, PlayerMove> = {
     drive: { dist: 2.0, from: 0.05, to: 0.38 } },
   // Sword_Regular_C at 1.15x: hit 0.54-0.63 s, free at 1.13 s (move time).
   riposte: { clip: 'Sword_Regular_C', to: 1.3, speed: 1.15, active: [0.54, 0.63], vulnerableUntil: 1.13, damage: 30, poise: 'break', meter: 30 },
-  roll: { clip: 'Roll', to: 0.75, vulnerableUntil: 0.75, drive: { dist: 2.8, from: 0.02, to: 0.55 } },
+  roll: { clip: 'Roll', to: 0.75, vulnerableUntil: 0.75, drive: { dist: 2.4, from: 0.02, to: 0.55 } },
 };
 
 export const ROLL = { invulnerable: [0.12, 0.45] as [number, number], cooldown: 0.8 };
