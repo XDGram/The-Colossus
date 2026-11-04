@@ -84,6 +84,8 @@ export class PlayerCombat {
   get guardUp() { return this.state === 'block' && this.blockT >= BLOCK.raise && this.lowering <= 0; }
   get parryActive() { return this.parryT > 0; }
   get riposteReady() { return this.riposteT > 0; }
+  /** Increments with every new move (for observers reacting to a new attack). */
+  get attackInstance() { return this.instance; }
   /** Unchained Cut 1s in the last 3 s (raises an enemy's parry chance; anti-mash). */
   mashScore() { return this.unchainedCut1.filter((t) => this.clock - t <= 3).length; }
 

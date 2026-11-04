@@ -42,6 +42,9 @@ export class Enemy<K extends EnemyKind = EnemyKind> {
   private clubPrev: { g: THREE.Vector3; d: THREE.Vector3 } | null = null;
   private clubFrom: { g: THREE.Vector3; d: THREE.Vector3 } | null = null;
   lastGrip: GripResult | null = null;
+  /** Playback controls for behaviour: locomotion rate (feet match ground speed) and freezing a pose (attack tells). */
+  rate = 1;
+  frozen = false;
   groundY = 0;
 
   constructor(readonly kind: K, body: GLTF, anims: THREE.AnimationClip[]) {
@@ -104,7 +107,8 @@ export class Enemy<K extends EnemyKind = EnemyKind> {
   get done() { const m = this.moves[this.move]; return !m.loop && !m.hold && this.time >= this.duration(this.move); }
 
   update(dt: number) {
-    this.time += dt; this.fade += dt;
+    if (!this.frozen) this.time += dt * this.rate;
+    this.fade += dt;
     const m = this.moves[this.move];
     const dur = this.duration(this.move);
     if (!m.loop && !m.hold && this.time >= dur) { this.play('idle' as MoveName<K>, 0.25); }

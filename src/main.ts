@@ -317,6 +317,14 @@ async function main() {
     hitWorld = new HitWorld(colliders);
     hitWorld.addTarget({ id: 'player', capsule: () => ({ base: player.position.clone(), ...BODY.player }), active: () => combat!.state !== 'dead' });
   }
+  // Dev-only behaviour arena (temple, ?combat=r2b1): enemy movement, spacing and attack permissions. No damage.
+  let arena: import('./combat/arena').CombatArena | null = null;
+  if (sceneName === 'temple' && params.has('combat')) {
+    const { CombatArena } = await import('./combat/arena');
+    arena = await CombatArena.create(params.get('combat') || 'r2b1', scene, import.meta.env.BASE_URL,
+      { height: (x, z) => Math.max(ground.height(x, z), colliders.floorAt(x, z, ground.height(x, z) + 0.6)), resolve: (x, z, y, r) => colliders.resolve(x, z, y, r) },
+      camera, player.position.clone(), player.facing, +(params.get('seed') || 1));
+  }
   // Development showcase of the invaders (temple only, ?enemies): no AI or combat.
   let enemyShowcase: import('./enemies/showcase').EnemyShowcase | null = null;
   if (sceneName === 'temple' && params.has('enemies')) {
@@ -391,6 +399,7 @@ async function main() {
     }
     mentor?.update(dt);
     enemyShowcase?.update(dt);
+    arena?.update(dt, { position: player.position, facing: player.facing, radius: 0.38, attackKey: combat?.state === 'attack' ? `p${combat.attackInstance}` : null });
     if (debugCam) { camera.position.fromArray(debugCam[0]); camera.lookAt(...debugCam[1]); }
     else tpc.update(dt, input, player.position, Math.hypot(player.velocity.x, player.velocity.z));
     setVegetationTime(t);
@@ -424,7 +433,7 @@ async function main() {
   // Hooks used by automated playtests and screenshot capture.
   Object.assign(window, {
     __tlc: {
-      ready: true, stats, start, player, mentor, enemies: () => enemyShowcase, combat: () => combat, hits: () => hitWorld, hitEvents, tpc, input, renderer, scene, camera, post,
+      ready: true, stats, start, player, mentor, enemies: () => enemyShowcase, combat: () => combat, hits: () => hitWorld, hitEvents, arena: () => arena, tpc, input, renderer, scene, camera, post,
       pause: (p: boolean) => { paused = p; renderer.domElement.style.visibility = p ? 'hidden' : 'visible'; },
       /** Deterministic capture for automated tests: simulate n frames, render once, return a JPEG data URL. */
       step: (n: number, dt = 1 / 30, capture = true) => {
