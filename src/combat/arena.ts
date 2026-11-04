@@ -13,6 +13,7 @@ import { segSegDistance, type Capsule } from './hits';
  */
 export class CombatArena {
   readonly brains: EnemyBrain[] = [];
+  private spawns: { p: THREE.Vector3; yaw: number }[] = [];
   readonly director: AttackDirector;
   time = 0;
 
@@ -59,9 +60,13 @@ export class CombatArena {
       e.object.position.copy(p); e.object.rotation.y = facing + Math.PI;
       scene.add(e.object);
       a.brains.push(new EnemyBrain(e, `${kind}${i}`, a.director, world, rnd));
+      a.spawns.push({ p: p.clone(), yaw: facing + Math.PI });
     });
     return a;
   }
+
+  /** Respawn every enemy at its spawn point (after the player's defeat). */
+  reset() { this.brains.forEach((b, i) => b.revive(this.spawns[i].p, this.spawns[i].yaw)); }
 
   update(dt: number, player: PlayerView) {
     this.time += dt;

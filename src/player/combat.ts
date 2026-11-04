@@ -122,8 +122,9 @@ export class PlayerCombat {
         if (dodge && this.rollCool <= 0) { this.startMove('roll', aimDir); break; }
         if (!held && this.lowering <= 0) { this.lowering = BLOCK.lower; this.log('block released'); }
         if (held && this.lowering > 0) { this.lowering = 0; }
+        // A riposte may follow a parry while the guard is still up or already lowering.
+        if (atk && this.riposteT > 0) { this.startMove('riposte', aimDir); break; }
         if (this.lowering > 0) { this.lowering -= dt; if (this.lowering <= 0) this.toFree(); }
-        else if (atk && this.riposteT > 0) this.startMove('riposte', aimDir);
         break;
       case 'attack': this.updateAttack(atk, dodge, held, aimDir); break;
       case 'recover': {
@@ -143,7 +144,10 @@ export class PlayerCombat {
     // Movement control for Player.update.
     const c = this.player.control;
     const busy = this.state !== 'free' && this.state !== 'block';
-    c.lockMove = busy;
+    // While a hit pushes the player back, he keeps facing his attacker (no turning toward the push).
+    c.lockMove = busy || (this.push !== null && this.clock < this.push.until);
+    // Blocking keeps the guard facing the same way (walking while blocking doesn't turn the player).
+    c.noTurn = this.state === 'block';
     c.moveScale = this.state === 'block' ? BLOCK.moveScale : 1;
     c.noSprint = this.state === 'block';
     c.drive = this.driveVector();
@@ -218,6 +222,13 @@ export class PlayerCombat {
     return 'hit';
   }
   /** An enemy parried the player's attack: short stun (punishable). */
+  /** Full reset after defeat: full health, free, sword sheathed. */
+  reset() {
+    this.hp = HEALTH.player; this.move = null; this.setState('free'); this.parryT = 0; this.riposteT = 0; this.push = null;
+    this.rollCool = this.mashLock = this.parryLock = 0;
+    if (this.cur) { this.cur.a.stop(); this.cur = null; } if (this.prev) { this.prev.a.stop(); this.prev = null; }
+    this.setDrawn(false); this.log('reset');
+  }
   parriedByEnemy() { if (this.state !== 'dead') this.react('stun', 'Hit_Head', REACT.parriedStun); }
 
   // ---------------------------------------------------------------- internals
@@ -276,7 +287,8 @@ export class PlayerCombat {
     this.move = null; this.setState('dead'); this.play('Death01', 0, 1); this.log('DEAD'); return 'killed';
   }
   private damage(n: number) { this.hp = Math.max(0, this.hp - n); }
-  private pushFrom(from: THREE.Vector3, dist: number) {
+  /** Push the player away from `from` by `dist` metres over 0.15 s (blocked hits, enemy guard). */
+  pushFrom(from: THREE.Vector3, dist: number) {
     const away = this.player.position.clone().sub(from).setY(0).normalize();
     this.push = { v: away.multiplyScalar(dist / 0.15), until: this.clock + 0.15 };
   }

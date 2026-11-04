@@ -21,7 +21,7 @@ export class Player {
   readonly mixer: THREE.AnimationMixer;
   readonly model: THREE.Object3D;
   /** Combat hooks (Stage 1): set by PlayerCombat each frame; defaults leave movement exactly as before. */
-  control = { lockMove: false, moveScale: 1, noSprint: false, drive: null as THREE.Vector3 | null, locomotion: 1 };
+  control = { lockMove: false, moveScale: 1, noSprint: false, noTurn: false, drive: null as THREE.Vector3 | null, locomotion: 1 };
   private actions: Record<'idle' | 'walk' | 'jog' | 'sprint', THREE.AnimationAction>;
   inWater = 0;
 
@@ -129,7 +129,7 @@ export class Player {
 
     // Face movement direction.
     const hs = Math.hypot(this.velocity.x, this.velocity.z);
-    if (hs > 0.3 && !c.lockMove) {
+    if (hs > 0.3 && !c.lockMove && !c.noTurn) {
       const targetYaw = Math.atan2(this.velocity.x, this.velocity.z);
       let d = targetYaw - this.yaw;
       d = Math.atan2(Math.sin(d), Math.cos(d));

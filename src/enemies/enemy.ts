@@ -77,7 +77,10 @@ export class Enemy<K extends EnemyKind = EnemyKind> {
     if (m.duration) return m.duration;
     return m.segs.reduce((s, g) => s + ((g.to ?? this.clips.get(g.clip)!.duration) - (g.from ?? 0)), 0) / (m.speed ?? 1);
   }
+  /** Increments every time a move starts (attack instances for hit-once). */
+  moveInstance = 0;
   play(name: MoveName<K>, fade = 0.2) {
+    this.moveInstance++;
     // Kneeling moves change the club stance a lot: give the blend more time.
     if (fade > 0 && this.moves[name].club === 'lean') fade = Math.max(fade, 0.35);
     if (this.pivot.position.lengthSq() > 0 || this.pivot.rotation.y !== 0) this.bakePivot();

@@ -71,6 +71,9 @@ export function applyLayer(name: LayerName, t: number, dur: number, ctx: LayerCt
       rotateWorld(B['spine_02'], ctx.up, -bump(t, 0, 0.25, 0.7) * 0.5);
       return { yaw: k * Math.PI * 1.15 };
     }
+    case 'runnerLunge':
+      // Drive the closing thrust: 1.8 m between 0.05 s and the 0.33 s hit.
+      return { offset: ctx.fwd.clone().multiplyScalar(1.8 * ss(t, 0.05, 0.33)) };
     case 'breakerCharge': {
       // Shield_Dash only travels 0.4 m: drive the 4 m rush from the game side.
       rotateWorld(B['spine_02'], pitch, bump(t, 0.02, 0.15, 0.8) * 0.25);

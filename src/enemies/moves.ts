@@ -7,7 +7,7 @@
  */
 export type ClubMode = 'clip' | 'carry' | 'guard' | 'lean' | 'none';
 export type LayerName = 'runnerReady' | 'runnerSpin' | 'runnerStepL' | 'runnerStepR' | 'runnerDeathB'
-  | 'breakerStamp' | 'breakerStagger' | 'breakerDeathB' | 'breakerCharge' | 'smashTilt';
+  | 'breakerStamp' | 'breakerStagger' | 'breakerDeathB' | 'breakerCharge' | 'smashTilt' | 'runnerLunge';
 
 export interface Seg { clip: string; from?: number; to?: number }
 export interface Hit {
@@ -44,7 +44,8 @@ export const RUNNER: Record<RunnerMove, MoveDef> = {
   slash2: { segs: [{ clip: 'Sword_Regular_B' }, { clip: 'Sword_Regular_B_Rec' }], hits: [{ t: 0.27, window: 0.06, reach: 1.45, arc: 140, damage: 8 }], openFrom: 0.37, recovery: 1.0 },
   flurry: { segs: [{ clip: 'Sword_Regular_Combo' }], hits: [[0.27, 1.2], [0.73, 1.45], [1.57, 1.45]].map(([t, reach]) => ({ t, window: 0.06, reach, arc: 140, damage: 7 })), openFrom: 1.7, recovery: 1.3 },
   finisher: { segs: [{ clip: 'Sword_Regular_C' }], hits: [{ t: 0.67, window: 0.07, reach: 1.45, arc: 150, damage: 12 }], openFrom: 0.8, recovery: 1.2 },
-  lunge: { segs: [{ clip: 'Sword_Dash' }], hits: [{ t: 0.33, window: 0.08, reach: 1.45, arc: 60, damage: 12 }], openFrom: 0.43, recovery: 1.2 },
+  // Closing thrust: Sword_Dash travels only ~0.4 m, so the game drives 1.8 m forward into the 0.33 s hit.
+  lunge: { segs: [{ clip: 'Sword_Dash' }], layer: 'runnerLunge', hits: [{ t: 0.33, window: 0.08, reach: 1.45, arc: 60, damage: 12 }], openFrom: 0.43, recovery: 1.2 },
   pommel: { segs: [{ clip: 'Melee_Hook' }, { clip: 'Melee_Hook_Rec' }], hits: [{ t: 0.27, window: 0.05, reach: 1.3, arc: 90, damage: 5 }], openFrom: 0.3, recovery: 0.6 },
   spin: { segs: [{ clip: 'Sword_Idle' }], duration: 0.95, layer: 'runnerSpin', hits: [{ t: 0.45, window: 0.14, reach: 1.1, arc: 360, damage: 10 }], openFrom: 0.62, recovery: 0.33 },
   parry: { segs: [{ clip: 'Sword_Block' }] },

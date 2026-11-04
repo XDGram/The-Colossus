@@ -18,6 +18,8 @@ export interface PlayerView {
   radius: number;
   /** Key of the player's current attack (changes when a new attack starts), or null. */
   attackKey: string | null;
+  /** Unchained Cut 1s in the last 3 s (anti-mash: raises a Runner's parry chance). */
+  mash?: number;
 }
 export interface WorldQuery {
   height(x: number, z: number): number;
@@ -97,6 +99,33 @@ export class EnemyBrain {
     this.e.play((this.rnd() < 0.5 ? 'deathA' : 'deathB') as never, 0.15);
   }
 
+  /** Open (punishable): in an attack's recovery window, or staggered. */
+  isOpen() {
+    if (this.state === 'stagger') return true;
+    if (this.state !== 'attack') return false;
+    const m = this.e.moves[this.e.move];
+    return m.openFrom !== undefined && this.e.time >= m.openFrom && this.e.time <= m.openFrom + (m.recovery ?? 0);
+  }
+  /** Untouchable while dodging (side-step / roll). */
+  get invulnerable() { return this.state === 'dodge' || this.dead; }
+  get parrying() { return this.state === 'parry'; }
+  /** True before the first hit of the current attack has landed (tell, or attack wind-up): poise may interrupt it. */
+  beforeFirstHit() {
+    if (this.state === 'tell') return true;
+    if (this.state !== 'attack') return false;
+    const h = this.e.moves[this.e.move].hits?.[0];
+    return !!h && this.e.time < h.t - h.window;
+  }
+  /** The charge stops on contact (it does not pass through). */
+  stopCharge() { if (this.attack === 'charge' && this.state === 'attack') { this.e.play('guard' as never, 0.15); } }
+  /** Back to life at a spawn point (arena restart after a defeat). */
+  revive(pos: THREE.Vector3, yaw: number) {
+    this.release(); this.removed = false; this.deadT = 0; this.attack = null;
+    this.e.pivot.position.set(0, 0, 0); this.e.pivot.rotation.y = 0;
+    this.e.object.position.copy(pos); this.e.object.rotation.y = yaw; this.e.object.visible = true;
+    this.e.rate = 1; this.e.frozen = false; this.e.play('idle' as never, 0); this.set('approach');
+  }
+
   // ------------------------------------------------------------------ per frame
   update(dt: number, now: number, player: PlayerView, others: EnemyBrain[]) {
     this.stateT += dt;
@@ -114,8 +143,9 @@ export class EnemyBrain {
     this.lastKey = player.attackKey;
     if (newAttack && this.e.kind === 'runner' && dist < 2.6 && ['approach', 'hold', 'engage', 'reposition'].includes(this.state) && this.dodgeCool <= 0) {
       const r = this.rnd();
+      const parry = Math.min(0.5, 0.15 + 0.1 * (player.mash ?? 0));
       if (r < 0.35) { this.dodgeCool = 3; this.startDodge(player); }
-      else if (r < 0.5) { this.dodgeCool = 3; this.set('parry'); this.e.play('parry' as never, 0.08); }
+      else if (r < 0.35 + parry) { this.dodgeCool = 3; this.set('parry'); this.e.play('parry' as never, 0.08); }
     }
 
     switch (this.state) {

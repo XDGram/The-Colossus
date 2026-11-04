@@ -332,6 +332,14 @@ async function main() {
       camera, player.position.clone(), player.facing, +(params.get('seed') || 1),
       () => (mentor ? [{ base: mentor.object.position.clone(), radius: 0.42, bottom: 0.1, top: 1.85 }] : []));
   }
+  // Combat loop (Stage 2C): hits, damage, health and reactions between the player and the arena's enemies.
+  let combatSystem: import('./combat/system').CombatSystem | null = null;
+  if (arena && combat && hitWorld) {
+    const { CombatSystem } = await import('./combat/system');
+    combatSystem = new CombatSystem(hitWorld, player, combat, arena.brains);
+    const home = player.position.clone(), homeYaw = player.facing;
+    combatSystem.onRestart = () => { player.teleport(home.x, home.z); player.setFacing(homeYaw); arena!.reset(); };
+  }
   // Development showcase of the invaders (temple only, ?enemies): no AI or combat.
   let enemyShowcase: import('./enemies/showcase').EnemyShowcase | null = null;
   if (sceneName === 'temple' && params.has('enemies')) {
@@ -399,14 +407,15 @@ async function main() {
     combat?.preUpdate(dt, input, tpc.yaw, started);
     player.update(dt, input, tpc.yaw, started);
     combat?.postUpdate(dt);
-    if (hitWorld && combat) {
+    if (hitWorld && combat && !combatSystem) {
       hitWorld.beginFrame();
       const a = combat.activeAttack;
       if (a) for (const e of hitWorld.sweepWeapon(a.key, 'player', { hilt: a.hilt, tip: a.tip, radius: 0.03 }, combat.chest(), { hilt: a.prevHilt, tip: a.prevTip })) { hitEvents.push(e); if (hitEvents.length > 64) hitEvents.shift(); }
     }
     mentor?.update(dt);
     enemyShowcase?.update(dt);
-    arena?.update(dt, { position: player.position, facing: player.facing, radius: 0.38, attackKey: combat?.state === 'attack' ? `p${combat.attackInstance}` : null });
+    arena?.update(dt, { position: player.position, facing: player.facing, radius: 0.38, attackKey: combat?.state === 'attack' ? `p${combat.attackInstance}` : null, mash: combat?.mashScore() ?? 0 });
+    combatSystem?.update(dt);
     if (debugCam) { camera.position.fromArray(debugCam[0]); camera.lookAt(...debugCam[1]); }
     else tpc.update(dt, input, player.position, Math.hypot(player.velocity.x, player.velocity.z));
     setVegetationTime(t);
@@ -440,7 +449,7 @@ async function main() {
   // Hooks used by automated playtests and screenshot capture.
   Object.assign(window, {
     __tlc: {
-      ready: true, stats, start, player, mentor, enemies: () => enemyShowcase, combat: () => combat, hits: () => hitWorld, hitEvents, arena: () => arena, tpc, input, renderer, scene, camera, post,
+      ready: true, stats, start, player, mentor, enemies: () => enemyShowcase, combat: () => combat, hits: () => hitWorld, hitEvents, arena: () => arena, combatSystem: () => combatSystem, tpc, input, renderer, scene, camera, post,
       pause: (p: boolean) => { paused = p; renderer.domElement.style.visibility = p ? 'hidden' : 'visible'; },
       /** Deterministic capture for automated tests: simulate n frames, render once, return a JPEG data URL. */
       step: (n: number, dt = 1 / 30, capture = true) => {
