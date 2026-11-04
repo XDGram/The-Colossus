@@ -109,11 +109,12 @@ export function dressWarrior(model: THREE.Object3D) {
   const clothMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0, side: THREE.DoubleSide, name: 'warrior-cloth' });
 
   /** Builds geometry in model space, merges per (bone, material) and parents it to the bone. */
-  const groups = new Map<string, { bone: THREE.Bone; mat: THREE.Material; geos: THREE.BufferGeometry[] }>();
-  const add = (bone: string, mat: THREE.Material, g: THREE.BufferGeometry, m?: THREE.Matrix4) => {
+  const groups = new Map<string, { bone: THREE.Bone; mat: THREE.Material; geos: THREE.BufferGeometry[]; tag?: string }>();
+  // `tag` keeps a part in its own named mesh (the sheathed katana hilt hides while the sword is drawn).
+  const add = (bone: string, mat: THREE.Material, g: THREE.BufferGeometry, m?: THREE.Matrix4, tag?: string) => {
     if (m) g.applyMatrix4(m);
-    const key = `${bone}|${mat.name}`;
-    (groups.get(key) ?? groups.set(key, { bone: bones[bone], mat, geos: [] }).get(key)!).geos.push(g);
+    const key = `${bone}|${mat.name}|${tag ?? ''}`;
+    (groups.get(key) ?? groups.set(key, { bone: bones[bone], mat, geos: [], tag }).get(key)!).geos.push(g);
   };
 
   const pelvis = toModel(P('pelvis')), spine1 = toModel(P('spine_01')), spine3 = toModel(P('spine_03')), neck = toModel(P('neck_01')), head = toModel(P('Head'));
@@ -256,11 +257,11 @@ export function dressWarrior(model: THREE.Object3D) {
     const collar = new THREE.CylinderGeometry(0.022, 0.022, 0.03, 10).rotateZ(-Math.PI / 2).translate(0.0, 0, 0);
     add('pelvis', ironMat, paint(collar, C.trim), F);
     const tsuba = new THREE.CylinderGeometry(0.042, 0.042, 0.008, 16).rotateZ(-Math.PI / 2).translate(-0.02, 0, 0);
-    add('pelvis', ironMat, paint(tsuba, C.iron), F);
+    add('pelvis', ironMat, paint(tsuba, C.iron), F, 'katana-hilt');
     const tsuka = new THREE.CylinderGeometry(0.016, 0.017, 0.25, 8, 10).rotateZ(-Math.PI / 2).translate(-0.15, 0.006, 0);
-    add('pelvis', leatherMat, paint(tsuka, C.cord, (_p, u, v) => (Math.abs(((v * 10 + u * 4) % 1) - 0.5) < 0.12 ? C.trim.clone().multiplyScalar(0.6) : null)), F);
+    add('pelvis', leatherMat, paint(tsuka, C.cord, (_p, u, v) => (Math.abs(((v * 10 + u * 4) % 1) - 0.5) < 0.12 ? C.trim.clone().multiplyScalar(0.6) : null)), F, 'katana-hilt');
     const kashira = new THREE.SphereGeometry(0.018, 8, 6).scale(1.2, 1, 1).translate(-0.28, 0.008, 0);
-    add('pelvis', ironMat, paint(kashira, C.iron), F);
+    add('pelvis', ironMat, paint(kashira, C.iron), F, 'katana-hilt');
   }
 
   // ---- Head: shadowed face, a brow line under the hood, and layered cloth wraps with folds. ----
@@ -316,9 +317,10 @@ export function dressWarrior(model: THREE.Object3D) {
   }
 
   // Merge and parent each group to its bone, keeping the bind-pose placement.
-  for (const { bone, mat, geos } of groups.values()) {
+  for (const { bone, mat, geos, tag } of groups.values()) {
     const g = mergeGeometries(geos.map((x) => { for (const k of Object.keys(x.attributes)) if (!['position', 'normal', 'color'].includes(k)) x.deleteAttribute(k); return x.index ? x.toNonIndexed() : x; }), false)!;
     const mesh = new THREE.Mesh(g, mat);
+    if (tag) mesh.name = tag;
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     mesh.applyMatrix4(model.matrixWorld);

@@ -37,6 +37,12 @@
       #touch .knob { position: absolute; left: 32px; top: 32px; width: 40px; height: 40px; border-radius: 50%; background: rgba(236,230,216,0.55); }
       #touch .sprint { position: fixed; right: max(24px, env(safe-area-inset-right)); bottom: max(40px, env(safe-area-inset-bottom)); width: 68px; height: 68px; border-radius: 50%; border: 1px solid rgba(236,230,216,0.5); background: rgba(10,11,10,0.25); color: var(--ink); font: 600 11px Inter, sans-serif; letter-spacing: 0.15em; -webkit-user-select: none; user-select: none; touch-action: none; }
       #touch .sprint.on { background: rgba(236,200,140,0.45); }
+      /* Combat buttons: placed beside the RUN button (which keeps its position and size). */
+      #touch .act { position: fixed; border-radius: 50%; border: 1px solid rgba(236,230,216,0.5); background: rgba(10,11,10,0.25); color: var(--ink); font: 600 10px Inter, sans-serif; letter-spacing: 0.12em; -webkit-user-select: none; user-select: none; touch-action: none; }
+      #touch .act.on { background: rgba(236,200,140,0.45); }
+      #touch .attack { right: calc(max(24px, env(safe-area-inset-right)) + 84px); bottom: max(36px, env(safe-area-inset-bottom)); width: 76px; height: 76px; }
+      #touch .block { right: max(24px, env(safe-area-inset-right)); bottom: calc(max(40px, env(safe-area-inset-bottom)) + 84px); width: 60px; height: 60px; }
+      #touch .dodge { right: calc(max(24px, env(safe-area-inset-right)) + 92px); bottom: calc(max(40px, env(safe-area-inset-bottom)) + 92px); width: 60px; height: 60px; }
       #app canvas { touch-action: none; }
       .touch-only { display: none; }
       @media (pointer: coarse) { .desk-only { display: none; } .touch-only { display: block; } }

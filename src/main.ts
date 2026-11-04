@@ -17,6 +17,7 @@ import { SunBeams } from './temple/light';
 import { CardField, crossedCards, flowerCard, grassGenerator, flowerGenerator, bushGeometry, vineGeometry, Birds, setFoliageTime } from './world/foliage';
 import { ThirdPersonCamera, TEMPLE_RIG } from './player/camera';
 import { Mentor } from './player/mentorNpc';
+import type { PlayerCombat } from './player/combat';
 import { ground } from './world/ground';
 import { PLAY, COLOSSUS_POS, SITES, terrainHeight } from './world/heightfield';
 
@@ -299,6 +300,14 @@ async function main() {
     mentor.place(mx, my, mz, -0.12, colliders);
     scene.add(mentor.object);
   }
+  // Player combat kit (temple only; the valley keeps exploration-only controls).
+  let combat: PlayerCombat | null = null;
+  if (sceneName === 'temple') {
+    const [{ PlayerCombat }, { GLTFLoader }, { MeshoptDecoder }] = await Promise.all([
+      import('./player/combat'), import('three/examples/jsm/loaders/GLTFLoader.js'), import('three/examples/jsm/libs/meshopt_decoder.module.js')]);
+    const lib = await new GLTFLoader().setMeshoptDecoder(MeshoptDecoder).loadAsync(`${import.meta.env.BASE_URL}assets/models/enemies.glb`);
+    combat = new PlayerCombat(player, lib.animations);
+  }
   // Development showcase of the invaders (temple only, ?enemies): no AI or combat.
   let enemyShowcase: import('./enemies/showcase').EnemyShowcase | null = null;
   if (sceneName === 'temple' && params.has('enemies')) {
@@ -363,7 +372,9 @@ async function main() {
   let debugCam: [number[], [number, number, number]] | null = null;
   const update = (dt: number) => {
     t += dt;
+    combat?.preUpdate(dt, input, tpc.yaw, started);
     player.update(dt, input, tpc.yaw, started);
+    combat?.postUpdate(dt);
     mentor?.update(dt);
     enemyShowcase?.update(dt);
     if (debugCam) { camera.position.fromArray(debugCam[0]); camera.lookAt(...debugCam[1]); }
@@ -399,7 +410,7 @@ async function main() {
   // Hooks used by automated playtests and screenshot capture.
   Object.assign(window, {
     __tlc: {
-      ready: true, stats, start, player, mentor, enemies: () => enemyShowcase, tpc, input, renderer, scene, camera, post,
+      ready: true, stats, start, player, mentor, enemies: () => enemyShowcase, combat: () => combat, tpc, input, renderer, scene, camera, post,
       pause: (p: boolean) => { paused = p; renderer.domElement.style.visibility = p ? 'hidden' : 'visible'; },
       /** Deterministic capture for automated tests: simulate n frames, render once, return a JPEG data URL. */
       step: (n: number, dt = 1 / 30, capture = true) => {

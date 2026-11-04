@@ -9,16 +9,28 @@ export class Input {
   private stick = { id: -1, ox: 0, oy: 0, x: 0, y: 0 };
   private lookTouch = { id: -1, x: 0, y: 0 };
   private sprintHeld = false;
+  // Combat actions: presses are queued until consumed; block is also tracked as held.
+  private attackQ = 0;
+  private dodgeQ = 0;
+  private blockPressQ = 0;
+  private blockMouse = false;
+  private blockTouch = false;
 
   constructor(private el: HTMLElement) {
     addEventListener('keydown', (e) => {
+      if (e.code === 'Space' && !e.repeat) this.dodgeQ++;
       this.keys.add(e.code);
       if (['Space', 'ArrowUp', 'ArrowDown'].includes(e.code)) e.preventDefault();
     });
     addEventListener('keyup', (e) => this.keys.delete(e.code));
     addEventListener('blur', () => this.keys.clear());
-    el.addEventListener('mousedown', () => { this.dragging = true; });
-    addEventListener('mouseup', () => { this.dragging = false; });
+    el.addEventListener('mousedown', (e) => {
+      this.dragging = true;
+      if (e.button === 0) this.attackQ++;
+      if (e.button === 2) { this.blockMouse = true; this.blockPressQ++; }
+    });
+    addEventListener('mouseup', (e) => { this.dragging = false; if (e.button === 2) this.blockMouse = false; });
+    el.addEventListener('contextmenu', (e) => e.preventDefault());
     addEventListener('mousemove', (e) => {
       if (document.pointerLockElement === this.el || this.dragging) {
         this.lookX += e.movementX;
@@ -37,6 +49,17 @@ export class Input {
     document.body.appendChild(ui);
     const base = ui.querySelector('.base') as HTMLElement, knob = ui.querySelector('.knob') as HTMLElement;
     const sprint = ui.querySelector('.sprint') as HTMLElement;
+    // Combat buttons, added beside (not over) the joystick and RUN.
+    const btn = (cls: string, label: string) => { const b = document.createElement('button'); b.className = `act ${cls}`; b.textContent = label; b.setAttribute('aria-label', label); ui.appendChild(b); return b; };
+    const atk = btn('attack', 'ATTACK'), dodge = btn('dodge', 'DODGE'), block = btn('block', 'BLOCK');
+    const press = (b: HTMLElement, fn: () => void) => b.addEventListener('touchstart', (e) => { fn(); b.classList.add('on'); e.preventDefault(); e.stopPropagation(); }, { passive: false });
+    press(atk, () => this.attackQ++);
+    press(dodge, () => this.dodgeQ++);
+    press(block, () => { this.blockTouch = true; this.blockPressQ++; });
+    for (const b of [atk, dodge, block]) {
+      const up = (e: TouchEvent) => { b.classList.remove('on'); if (b === block) this.blockTouch = false; e.preventDefault(); e.stopPropagation(); };
+      b.addEventListener('touchend', up, { passive: false }); b.addEventListener('touchcancel', up, { passive: false });
+    }
     const R = 52;
     sprint.addEventListener('touchstart', (e) => { this.sprintHeld = !this.sprintHeld; sprint.classList.toggle('on', this.sprintHeld); e.preventDefault(); e.stopPropagation(); }, { passive: false });
     el.addEventListener('touchstart', (e) => {
@@ -92,6 +115,17 @@ export class Input {
   }
   get sprint() { return this.keys.has('ShiftLeft') || this.keys.has('ShiftRight') || this.sprintHeld; }
   get walk() { return this.keys.has('ControlLeft') || this.keys.has('AltLeft') || this.keys.has('KeyC'); }
+
+  /** Number of attack presses since the last call (0 or more). */
+  consumeAttack() { const n = this.attackQ; this.attackQ = 0; return n; }
+  consumeDodge() { const n = this.dodgeQ; this.dodgeQ = 0; return n; }
+  consumeBlockPress() { const n = this.blockPressQ; this.blockPressQ = 0; return n; }
+  get blockHeld() { return this.blockMouse || this.blockTouch; }
+  /** Test hook: inject an action as if pressed. */
+  inject(a: 'attack' | 'dodge' | 'blockDown' | 'blockUp') {
+    if (a === 'attack') this.attackQ++; else if (a === 'dodge') this.dodgeQ++;
+    else if (a === 'blockDown') { this.blockMouse = true; this.blockPressQ++; } else this.blockMouse = false;
+  }
 
   consumeLook() { const r = { x: this.lookX, y: this.lookY, zoom: this.zoom }; this.lookX = this.lookY = this.zoom = 0; return r; }
 }

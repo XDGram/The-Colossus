@@ -18,12 +18,16 @@ export class Player {
   readonly velocity = new THREE.Vector3();
   private vy = 0;
   private yaw = Math.PI;
-  private mixer: THREE.AnimationMixer;
+  readonly mixer: THREE.AnimationMixer;
+  readonly model: THREE.Object3D;
+  /** Combat hooks (Stage 1): set by PlayerCombat each frame; defaults leave movement exactly as before. */
+  control = { lockMove: false, moveScale: 1, noSprint: false, drive: null as THREE.Vector3 | null, locomotion: 1 };
   private actions: Record<'idle' | 'walk' | 'jog' | 'sprint', THREE.AnimationAction>;
   inWater = 0;
 
   constructor(gltf: GLTF, private colliders: Colliders, start: { x: number; z: number }) {
     const model = cloneSkinned(gltf.scene);
+    this.model = model;
     // Armour is built in the rest pose and parented to bones, before any animation runs.
     dressWarrior(model);
     const seen = new Set<THREE.Material>();
@@ -57,7 +61,8 @@ export class Player {
   }
 
   update(dt: number, input: Input, camYaw: number, enabled: boolean) {
-    const ax = enabled ? input.axis() : { x: 0, y: 0, mag: 0 };
+    const c = this.control;
+    const ax = enabled && !c.lockMove ? input.axis() : { x: 0, y: 0, mag: 0 };
     // Camera-relative intent: camera looks along -Z rotated by camYaw.
     const fwd = new THREE.Vector3(-Math.sin(camYaw), 0, -Math.cos(camYaw));
     const right = new THREE.Vector3(-fwd.z, 0, fwd.x);
@@ -65,19 +70,23 @@ export class Player {
     const moving = wish.lengthSq() > 0;
     if (moving) wish.normalize();
 
-    let speed = input.sprint ? SPEED.sprint : input.walk ? SPEED.walk : SPEED.jog;
+    const sprint = input.sprint && !c.noSprint;
+    let speed = sprint ? SPEED.sprint : input.walk ? SPEED.walk : SPEED.jog;
     if (ax.mag < 1) speed = THREE.MathUtils.lerp(SPEED.walk, speed, THREE.MathUtils.smoothstep(ax.mag, 0.35, 0.9));
     // Wading through the stream slows you down.
     const wy = ground.water(this.position.z);
     const depth = Math.max(0, wy - this.position.y);
     this.inWater = depth;
     if (depth > 0.05) speed *= THREE.MathUtils.lerp(0.75, 0.45, Math.min(1, depth / 0.8));
+    speed *= c.moveScale;
 
     const target = wish.multiplyScalar(speed);
-    const accel = moving ? (input.sprint ? 12 : 16) : 20;
+    const accel = moving ? (sprint ? 12 : 16) : 20;
     const k = 1 - Math.exp(-accel * dt * 0.5);
     this.velocity.x += (target.x - this.velocity.x) * k;
     this.velocity.z += (target.z - this.velocity.z) * k;
+    // Moves that travel (roll, lunge) drive the body directly.
+    if (c.drive) { this.velocity.x = c.drive.x; this.velocity.z = c.drive.z; }
 
     // Proposed move, with slope limiting: you can't walk up anything steeper than MAX_SLOPE.
     let nx = this.position.x + this.velocity.x * dt;
@@ -120,7 +129,7 @@ export class Player {
 
     // Face movement direction.
     const hs = Math.hypot(this.velocity.x, this.velocity.z);
-    if (hs > 0.3) {
+    if (hs > 0.3 && !c.lockMove) {
       const targetYaw = Math.atan2(this.velocity.x, this.velocity.z);
       let d = targetYaw - this.yaw;
       d = Math.atan2(Math.sin(d), Math.cos(d));
@@ -143,7 +152,7 @@ export class Player {
     }
     for (const k of Object.keys(this.actions) as (keyof typeof this.actions)[]) {
       const a = this.actions[k];
-      a.setEffectiveWeight(THREE.MathUtils.lerp(a.getEffectiveWeight(), w[k], 1 - Math.exp(-14 * dt)));
+      a.setEffectiveWeight(THREE.MathUtils.lerp(a.getEffectiveWeight(), w[k] * this.control.locomotion, 1 - Math.exp(-14 * dt)));
       if (k !== 'idle') a.setEffectiveTimeScale(THREE.MathUtils.clamp(s / CLIP_SPEED[k], 0.6, 1.5));
     }
     // Keep moving clips phase-synchronised so blends don't scissor the legs.
