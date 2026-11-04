@@ -35,12 +35,14 @@ const dirOf = (ctx: LayerCtx, r: number, f: number, u: number) => new THREE.Vect
 
 export function applyLayer(name: LayerName, t: number, dur: number, ctx: LayerCtx): LayerOut {
   const B = ctx.bones;
+  // Forward-bend axis (rotating up toward forward), independent of the right vector's sign.
+  const pitch = new THREE.Vector3().crossVectors(ctx.up, ctx.fwd).normalize();
   switch (name) {
     case 'runnerReady': {
       // Low, wide dual-blade stance: knees bent, blades forward and slightly out, points raised.
       const br = Math.sin(t * 2.2) * 0.008;
       dropPelvis(B, -0.08 + br, ctx.fwd, ctx.feet);
-      rotateWorld(B['spine_02'], ctx.right, 0.12);
+      rotateWorld(B['spine_02'], pitch, 0.12);
       bladesAt(ctx, [0.3, 0.3, 0.98 + br], [-0.27, 0.36, 1.02 + br], dirOf(ctx, 0.25, 1, 0.55), dirOf(ctx, -0.2, 1, 0.75));
       return {};
     }
@@ -71,7 +73,7 @@ export function applyLayer(name: LayerName, t: number, dur: number, ctx: LayerCt
     }
     case 'breakerCharge': {
       // Shield_Dash only travels 0.4 m: drive the 4 m rush from the game side.
-      rotateWorld(B['spine_02'], ctx.right, bump(t, 0.02, 0.15, 0.8) * 0.25);
+      rotateWorld(B['spine_02'], pitch, bump(t, 0.02, 0.15, 0.8) * 0.25);
       return { offset: ctx.fwd.clone().multiplyScalar(4 * ss(t, 0.04, 0.7)) };
     }
     case 'breakerStamp': {
@@ -83,7 +85,7 @@ export function applyLayer(name: LayerName, t: number, dur: number, ctx: LayerCt
       const target = ctx.feet.r.clone().addScaledVector(ctx.up, 0.4 * lift).addScaledVector(ctx.fwd, 0.4 * fwdAmt);
       const knee = wpos(B['calf_r']).addScaledVector(ctx.fwd, 1).addScaledVector(ctx.up, 0.4);
       twoLeg(B, 'r', target, knee);
-      rotateWorld(B['spine_02'], ctx.right, 0.06 * lift + 0.18 * impact);
+      rotateWorld(B['spine_02'], pitch, 0.06 * lift + 0.18 * impact);
       rotateWorld(B['spine_01'], ctx.fwd, -0.08 * lift);
       return {};
     }
@@ -91,16 +93,14 @@ export function applyLayer(name: LayerName, t: number, dur: number, ctx: LayerCt
       // Guard broken: drops to one knee (0.05-0.35 s), sags, then forces himself up (1.75-2.2 s).
       const k = ss(t, 0.05, 0.35) * (1 - ss(t, 1.75, 2.2));
       kneel(ctx, k);
-      rotateWorld(B['spine_02'], ctx.right, 0.25 * k + Math.sin(t * 3) * 0.02 * k);
-      rotateWorld(B['neck_01'], ctx.right, 0.22 * k);
+      rotateWorld(B['spine_02'], pitch, 0.25 * k + Math.sin(t * 3) * 0.02 * k);
+      rotateWorld(B['neck_01'], pitch, 0.22 * k);
       return { clubLower: k };
     }
     case 'breakerDeathB': {
       // Down to one knee, then slumps forward over the planted club and stays there.
       const k = ss(t, 0.05, 0.45), s = ss(t, 0.7, 1.9);
       kneel(ctx, k, 0.06 * s);
-      // Forward bend axis (up -> forward), independent of the right vector's sign.
-      const pitch = new THREE.Vector3().crossVectors(ctx.up, ctx.fwd).normalize();
       rotateWorld(B['spine_01'], pitch, 0.18 * s);
       rotateWorld(B['spine_02'], pitch, 0.25 * k + 0.32 * s);
       rotateWorld(B['neck_01'], pitch, 0.2 * k + 0.4 * s);
