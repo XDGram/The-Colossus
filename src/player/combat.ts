@@ -20,6 +20,10 @@ export interface ActiveAttack {
   damage: number; damageOpen: number;
   poise: number | 'break'; meter: number;
   hilt: THREE.Vector3; tip: THREE.Vector3;
+  /** Blade position on the previous frame (so the first active frame is swept too). */
+  prevHilt: THREE.Vector3; prevTip: THREE.Vector3;
+  /** Unique per attack instance, for the shared hit resolver's hit-once rule. */
+  key: string;
 }
 
 const FADE = 0.08;
@@ -166,8 +170,12 @@ export class PlayerCombat {
       this.pelvis.position.x = THREE.MathUtils.lerp(this.pelvis.position.x, this.pelvisRest.x, this.cur.w);
       this.pelvis.position.z = THREE.MathUtils.lerp(this.pelvis.position.z, this.pelvisRest.z, this.cur.w);
     }
-    this.player.model.updateMatrixWorld(true);
-    // Active hit window (for the shared hit resolver in a later stage).
+    // Update from the player root (its transform was just moved this frame), so weapon positions are current.
+    this.player.object.updateMatrixWorld(true);
+    // Active hit window (for the shared hit resolver). The blade is tracked every frame so the first active frame has a previous position.
+    const hiltNow = new THREE.Vector3().setFromMatrixPosition(this.katana.hilt.matrixWorld), tipNow = new THREE.Vector3().setFromMatrixPosition(this.katana.tip.matrixWorld);
+    const prevHilt = this.bladePrev?.hilt ?? hiltNow, prevTip = this.bladePrev?.tip ?? tipNow;
+    this.bladePrev = { hilt: hiltNow, tip: tipNow };
     this.activeAttack = null;
     if (this.state === 'attack' && this.move) {
       const m = PLAYER_MOVES[this.move];
@@ -175,7 +183,7 @@ export class PlayerCombat {
         this.activeAttack = {
           move: this.move, instance: this.instance, damage: playerDamage(this.move, false), damageOpen: playerDamage(this.move, true),
           poise: m.poise ?? 0, meter: m.meter ?? 0,
-          hilt: new THREE.Vector3().setFromMatrixPosition(this.katana.hilt.matrixWorld), tip: new THREE.Vector3().setFromMatrixPosition(this.katana.tip.matrixWorld),
+          hilt: hiltNow, tip: tipNow, prevHilt, prevTip, key: `player#${this.instance}`,
         };
       }
     }
@@ -305,6 +313,9 @@ export class PlayerCombat {
     this.holdAt = hold ?? -1;
   }
   private holdAt = -1;
+  private bladePrev: { hilt: THREE.Vector3; tip: THREE.Vector3 } | null = null;
+  /** World position of the chest (line-of-sight origin for hits). */
+  chest() { return this.player.position.clone().setY(this.player.position.y + 1.3); }
   setDrawn(d: boolean) {
     this.drawn = d; this.katana.mount.visible = d;
     for (const h of this.hiltSheathed) h.visible = !d;

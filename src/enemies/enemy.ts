@@ -5,6 +5,7 @@ import { dressRunner } from './runner';
 import { BREAKER_SCALE, CLUB, dressBreaker } from './breaker';
 import { calibrateHand, wpos, wquat, type HandCal } from './ik';
 import { TwoHandGrip, type GripResult } from './twohand';
+import type { WeaponSample } from '../combat/hits';
 import { applyLayer, type LayerCtx } from './custom';
 import { BREAKER, RUNNER, type BreakerMove, type ClubMode, type MoveDef, type RunnerMove } from './moves';
 
@@ -33,6 +34,7 @@ export class Enemy<K extends EnemyKind = EnemyKind> {
   private cal: { l: HandCal; r: HandCal };
   private grip?: TwoHandGrip;
   private mount?: THREE.Object3D;
+  private blades?: { l: THREE.Object3D; r: THREE.Object3D };
   move: string = 'idle';
   time = 0;
   private prev: { move: string; time: number } | null = null;
@@ -53,7 +55,7 @@ export class Enemy<K extends EnemyKind = EnemyKind> {
       if ((o as THREE.Mesh).isMesh) { o.castShadow = o.receiveShadow = true; (o as THREE.Mesh).frustumCulled = false; }
     });
     this.cal = { l: calibrateHand(this.bones, 'l'), r: calibrateHand(this.bones, 'r') };
-    if (kind === 'runner') dressRunner(this.model);
+    if (kind === 'runner') this.blades = dressRunner(this.model).blades;
     else {
       const parts = dressBreaker(this.model);
       this.mount = parts.club;
@@ -172,6 +174,18 @@ export class Enemy<K extends EnemyKind = EnemyKind> {
     this.lastGrip = this.grip!.solve(g, d, this.groundY, tilt ? TwoHandGrip.smashTilt(clipTime) : 0, true);
     this.clubPrev = { g: wpos(this.mount!).sub(wpos(this.bones['spine_03'])), d: new THREE.Vector3(0, 1, 0).applyQuaternion(wquat(this.mount!)).normalize() };
   }
+
+  /** Weapon segments in world space for the shared hit resolver: two blades (Runner) or the club head (Breaker). */
+  weapons(): WeaponSample[] {
+    const seg = (m: THREE.Object3D, a: number, b: number, radius: number): WeaponSample => {
+      m.updateMatrixWorld(true);
+      return { hilt: m.localToWorld(new THREE.Vector3(0, a, 0)), tip: m.localToWorld(new THREE.Vector3(0, b, 0)), radius };
+    };
+    if (this.blades) return [seg(this.blades.r, 0.07, 0.5, 0.03), seg(this.blades.l, 0.07, 0.5, 0.03)];
+    return [seg(this.mount!, 0.6, 1.5, 0.085)];
+  }
+  /** Chest position (line-of-sight origin for hits). */
+  chest() { return wpos(this.bones['spine_03']); }
 
   /** Hits active at the current move time. */
   activeHits() { return (this.moves[this.move].hits ?? []).filter((h) => Math.abs(this.time - h.t) <= h.window); }

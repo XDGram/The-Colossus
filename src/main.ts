@@ -308,6 +308,15 @@ async function main() {
     const lib = await new GLTFLoader().setMeshoptDecoder(MeshoptDecoder).loadAsync(`${import.meta.env.BASE_URL}assets/models/enemies.glb`);
     combat = new PlayerCombat(player, lib.animations);
   }
+  // Shared hit detection (Stage 2A): the player is a target; the player's katana sweeps every frame of an active cut.
+  // Nothing consumes hit events yet (enemy reactions and damage come in later stages).
+  let hitWorld: import('./combat/hits').HitWorld | null = null;
+  const hitEvents: import('./combat/hits').HitEvent[] = [];
+  if (combat) {
+    const { HitWorld, BODY } = await import('./combat/hits');
+    hitWorld = new HitWorld(colliders);
+    hitWorld.addTarget({ id: 'player', capsule: () => ({ base: player.position.clone(), ...BODY.player }), active: () => combat!.state !== 'dead' });
+  }
   // Development showcase of the invaders (temple only, ?enemies): no AI or combat.
   let enemyShowcase: import('./enemies/showcase').EnemyShowcase | null = null;
   if (sceneName === 'temple' && params.has('enemies')) {
@@ -375,6 +384,11 @@ async function main() {
     combat?.preUpdate(dt, input, tpc.yaw, started);
     player.update(dt, input, tpc.yaw, started);
     combat?.postUpdate(dt);
+    if (hitWorld && combat) {
+      hitWorld.beginFrame();
+      const a = combat.activeAttack;
+      if (a) for (const e of hitWorld.sweepWeapon(a.key, 'player', { hilt: a.hilt, tip: a.tip, radius: 0.03 }, combat.chest(), { hilt: a.prevHilt, tip: a.prevTip })) { hitEvents.push(e); if (hitEvents.length > 64) hitEvents.shift(); }
+    }
     mentor?.update(dt);
     enemyShowcase?.update(dt);
     if (debugCam) { camera.position.fromArray(debugCam[0]); camera.lookAt(...debugCam[1]); }
@@ -410,7 +424,7 @@ async function main() {
   // Hooks used by automated playtests and screenshot capture.
   Object.assign(window, {
     __tlc: {
-      ready: true, stats, start, player, mentor, enemies: () => enemyShowcase, combat: () => combat, tpc, input, renderer, scene, camera, post,
+      ready: true, stats, start, player, mentor, enemies: () => enemyShowcase, combat: () => combat, hits: () => hitWorld, hitEvents, tpc, input, renderer, scene, camera, post,
       pause: (p: boolean) => { paused = p; renderer.domElement.style.visibility = p ? 'hidden' : 'visible'; },
       /** Deterministic capture for automated tests: simulate n frames, render once, return a JPEG data URL. */
       step: (n: number, dt = 1 / 30, capture = true) => {
