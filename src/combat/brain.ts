@@ -139,7 +139,7 @@ export class EnemyBrain {
         // Close in for a melee attack, then start it when the director allows (and the player can see the tell).
         const range = this.attack === 'lunge' ? 3.2 : this.e.kind === 'runner' ? 1.25 : 2.2;
         if (dist > range) want = toP.clone().normalize().multiplyScalar(this.e.kind === 'runner' ? this.p.jog : this.p.walk);
-        else if (this.director.tryStart(this.id, this.e.kind, now, this.e.chest())) this.beginTell();
+        else if (this.director.tryStart(this.id, this.e.kind, now, this.tellPoints())) this.beginTell();
         if (this.stateT > 2.5) { this.attack = null; this.set('reposition'); }
         break;
       }
@@ -211,7 +211,7 @@ export class EnemyBrain {
   }
   private tryAttack(name: string, _me: THREE.Vector3, now: number) {
     this.attack = name;
-    if (this.director.tryStart(this.id, this.e.kind, now, this.e.chest())) this.beginTell();
+    if (this.director.tryStart(this.id, this.e.kind, now, this.tellPoints())) this.beginTell();
     else { this.attack = null; this.nextDecision = 0.4; }
   }
   private beginTell() {
@@ -333,6 +333,12 @@ export class EnemyBrain {
   }
   unstuckCount = 0;
 
+  /** Points the player must be able to see for this enemy's warning to count: chest, head and the glint position. */
+  tellPoints() {
+    const chest = this.e.chest(), head = chest.clone().add(new THREE.Vector3(0, 0.45, 0));
+    const unparryable = this.attack ? !ENEMY_HITS[TELL[this.attack].hit].parryable : false;
+    return [chest, head, unparryable ? head : this.e.weapons()[0].tip];
+  }
   private updateCue(now: number) {
     const w = this.e.weapons()[0];
     this.cue.position.copy(this.attack && !ENEMY_HITS[TELL[this.attack].hit].parryable ? this.e.chest().add(new THREE.Vector3(0, 0.45, 0)) : w.tip);

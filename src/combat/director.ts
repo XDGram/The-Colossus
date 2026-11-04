@@ -13,13 +13,14 @@ export class AttackDirector {
   /** Log of granted starts [time, id] (tests). */
   readonly starts: [number, string][] = [];
 
-  constructor(private visible: (p: { x: number; y: number; z: number }) => boolean) {}
+  /** `visible` decides whether the player can genuinely see the warning (on screen and unobstructed). */
+  constructor(private visible: (pts: { x: number; y: number; z: number }[]) => boolean) {}
 
   get attackers() { return this.holders.size; }
   holds(id: string) { return this.holders.has(id); }
 
   /** Ask to start an attack (its tell) now. Grants and records the start if every rule allows it. */
-  tryStart(id: string, kind: EnemyKind, now: number, tellAt: { x: number; y: number; z: number }) {
+  tryStart(id: string, kind: EnemyKind, now: number, tellAt: { x: number; y: number; z: number }[]) {
     if (this.holders.has(id)) return true;
     if (this.holders.size >= DIRECTOR.maxAttackers) return false;
     if (kind === 'breaker' && [...this.holders.values()].filter((k) => k === 'breaker').length >= DIRECTOR.maxBreakers) return false;

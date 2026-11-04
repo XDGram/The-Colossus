@@ -15,13 +15,21 @@ export class CombatArena {
   readonly director: AttackDirector;
   time = 0;
 
-  private constructor(visible: (p: { x: number; y: number; z: number }) => boolean) { this.director = new AttackDirector(visible); }
+  private constructor(visible: (pts: { x: number; y: number; z: number }[]) => boolean) { this.director = new AttackDirector(visible); }
 
-  static async create(spec: string, scene: THREE.Scene, base: string, world: WorldQuery, camera: THREE.PerspectiveCamera, origin: THREE.Vector3, facing: number, seed = 1) {
-    const frustum = new THREE.Frustum(), m = new THREE.Matrix4();
-    const visible = (p: { x: number; y: number; z: number }) => {
-      camera.updateMatrixWorld(); m.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse); frustum.setFromProjectionMatrix(m);
-      return frustum.containsPoint(new THREE.Vector3(p.x, p.y, p.z));
+  static async create(spec: string, scene: THREE.Scene, base: string, world: WorldQuery & { lineBlocked(a: THREE.Vector3, b: THREE.Vector3): boolean }, camera: THREE.PerspectiveCamera, origin: THREE.Vector3, facing: number, seed = 1) {
+    // Genuine visibility of a warning: every point clearly inside the view (inset from the edges, in front of the
+    // camera) AND an unobstructed line from the camera to it (walls, buildings and other colliders block it).
+    const INSET = 0.85;
+    const visible = (pts: { x: number; y: number; z: number }[]) => {
+      camera.updateMatrixWorld();
+      const eye = camera.getWorldPosition(new THREE.Vector3());
+      return pts.every((pt) => {
+        const p = new THREE.Vector3(pt.x, pt.y, pt.z);
+        const q = p.clone().project(camera);
+        if (q.z <= -1 || q.z >= 1 || Math.abs(q.x) > INSET || Math.abs(q.y) > INSET) return false;
+        return !world.lineBlocked(eye, p);
+      });
     };
     const a = new CombatArena(visible);
     const gl = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);

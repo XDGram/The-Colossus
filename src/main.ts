@@ -322,7 +322,13 @@ async function main() {
   if (sceneName === 'temple' && params.has('combat')) {
     const { CombatArena } = await import('./combat/arena');
     arena = await CombatArena.create(params.get('combat') || 'r2b1', scene, import.meta.env.BASE_URL,
-      { height: (x, z) => Math.max(ground.height(x, z), colliders.floorAt(x, z, ground.height(x, z) + 0.6)), resolve: (x, z, y, r) => colliders.resolve(x, z, y, r) },
+      { height: (x, z) => Math.max(ground.height(x, z), colliders.floorAt(x, z, ground.height(x, z) + 0.6)), resolve: (x, z, y, r) => colliders.resolve(x, z, y, r),
+        // Line of sight for warnings: sampled every 0.15 m against colliders (and the camera's solid test, e.g. roofs).
+        lineBlocked: (a, b) => {
+          const d = a.distanceTo(b), dir = b.clone().sub(a).normalize();
+          for (let s = 0.2; s < d - 0.25; s += 0.15) { const p = a.clone().addScaledVector(dir, s); if (colliders.blocks(p.x, p.y, p.z) || ground.solid?.(p.x, p.y, p.z)) return true; }
+          return false;
+        } },
       camera, player.position.clone(), player.facing, +(params.get('seed') || 1));
   }
   // Development showcase of the invaders (temple only, ?enemies): no AI or combat.
