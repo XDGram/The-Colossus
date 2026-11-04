@@ -205,3 +205,78 @@ Interrupted by `Dodge / Parry / Block / Flinch / Stagger / Dead`.
 5. Combat director.
 6. Minimal HUD: player health bar, plus enemy health above damaged enemies.
 7. Dev-only test arena (`?combat`, not an encounter).
+
+---
+
+## Exact damage table (reference for implementation)
+
+Health: **Player 100, Ash Runner 40, Iron Breaker 120.** All values are per individual hit.
+Nothing here changes the timings, controls, camera or mechanics above.
+
+### A. Ash Runner attacks → player
+
+| Attack | Hit time | Damage | % of player | Blocked | Parryable | Reaction |
+|---|---|---|---|---|---|---|
+| Slash | 0.27 s | 8 | 8% | 2 | yes | flinch, 0.3 m |
+| Slash 2 | 0.27 s | 8 | 8% | 2 | yes | flinch, 0.3 m |
+| Flurry hit 1 | 0.27 s | 6 | 6% | 2 | yes | flinch, 0.3 m |
+| Flurry hit 2 | 0.73 s | 6 | 6% | 2 | yes | flinch, 0.3 m |
+| Flurry hit 3 | 1.57 s | 6 | 6% | 2 | yes | flinch, 0.3 m |
+| Finisher | 0.67 s | 12 | 12% | 3 | yes | flinch, 0.8 m |
+| Lunge | 0.33 s | 12 | 12% | 3 | yes | flinch, 0.8 m |
+| Pommel strike | 0.27 s | 5 | 5% | 1 | yes | flinch, 0.3 m |
+| Spin cut | 0.45 s | 10 | 10% | 3 | no | flinch, 0.3 m |
+
+### B. Iron Breaker attacks → player
+
+| Attack | Hit time | Damage | % of player | Blocked | Parryable | Reaction |
+|---|---|---|---|---|---|---|
+| Sweep hit 1 (low swipe) | 0.50 s | 12 | 12% | 3 | yes | flinch, 0.8 m |
+| Sweep hit 2 (upswing) | 1.17 s | 12 | 12% | 3 | yes | flinch, 0.8 m |
+| Sweep hit 3 (horizontal) | 1.83 s | 14 | 14% | 4 | yes | flinch, 0.8 m |
+| Overhead smash | 0.63 s | 28 | 28% | 14 + guard break | no | knockdown |
+| Shoulder charge | 0.05–0.65 s | 20 | 20% | 10 + guard break | no | knockdown |
+| Ground stamp (shockwave) | 0.75–0.90 s | 10 | 10% | 5 + guard break | no | knockdown |
+
+**Notes:**
+- **Block:** reduces light and medium hits to 25% (rounded up). Heavy hits deal 50% and break the guard: the player is stunned for 0.8 s.
+- **Parry:** a successful parry takes 0 damage.
+- **Knockdown:** the player can't be hit from 0.6 s into the get-up.
+
+### C. Player katana moves → enemies
+
+| Move | Hit time | Damage | Damage when open (×1.5) | Runner poise | Breaker meter | Breaker meter, open (×2) | Breaker meter from behind (×1.5) |
+|---|---|---|---|---|---|---|---|
+| Cut 1 | 0.27 s | 8 | 12 | 10 | 6 | 12 | 9 (18 if also open) |
+| Cut 2 | 0.27 s | 8 | 12 | 10 | 6 | 12 | 9 (18 if also open) |
+| Cut 3 (finisher) | 0.67 s | 16 | 24 | 25 | 15 | 30 | 22.5 (45 if also open) |
+| Full combo (1-2-3) | — | 32 | 48 | 45 | 27 | 54 | 40.5 (81 if also open) |
+| Sprint lunge | 0.33 s | 14 | 21 | 20 | 10 | 20 | 15 (30 if also open) |
+| Riposte | 0.58 s | 30 | 45 | breaks | 30 | 60 | 45 (90 if also open) |
+
+**Notes:**
+- **Open:** means the enemy is in a recovery window, or staggered. Runner poise also doubles when open.
+- **Multipliers:** they stack multiplicatively. The Breaker's 4 s stagger immunity still applies: no meter gain during it.
+
+### D. Parry contributions
+
+| Parried attack | Player damage taken | Effect on enemy | Riposte window |
+|---|---|---|---|
+| Any Runner parryable attack | 0 | Poise broken, stagger 1.0 s (open) | 1.0 s |
+| Breaker sweep hit (any of 3) | 0 | Meter +35 (no stagger unless it fills) | 1.0 s |
+| Smash / charge / stamp / Runner spin | not parryable | — | — |
+
+### E. Poise and meter rules
+
+| | Value |
+|---|---|
+| Runner poise | 20. A break causes a 0.35 s flinch and interrupts his move before its hit lands. Resets 1.5 s after the last hit |
+| Breaker meter | 100. Full: knee-drop stagger 2.2 s (open). Decays 10/s once 2 s pass without gain. 4 s immunity after a stagger |
+
+### F. Time-to-kill check
+
+| Target | Fastest clean kill | Typical |
+|---|---|---|
+| Ash Runner (40) | Parry → riposte (45 while open) | Combo (32) + one cut (8); or riposte (30) + Cut 1 (8) + Cut 2 (8) |
+| Iron Breaker (120) | Stagger then a full combo while open (48), twice, plus one riposte | About 2.5 punish windows (48 each) |
+| Player (100) | 4 smashes (112), or 3 smashes plus a charge | About 12 Runner slashes, or 7 sweep hits |
