@@ -402,16 +402,7 @@ async function main() {
   const post = new Post(renderer, scene, camera, quality, atmo.sunDir);
   if (sceneName === 'temple') {
     post.rays.uniforms.uIntensity.value = 0.5;
-    if (post.bloom) { post.bloom.strength = 0.36; post.bloom.threshold = 0.82; }
-    // Ghost of Tsushima-style golden hour: strong shafts, rich warm highlights, deeper shadows, saturated golds and reds.
-    post.rays.uniforms.uIntensity.value = 0.95;
-    const grade = (post as unknown as { grade?: { uniforms: Record<string, { value: unknown }> } }).grade;
-    if (grade) {
-      (grade.uniforms.uWarm.value as THREE.Color).setRGB(1.14, 1.0, 0.8);
-      (grade.uniforms.uCool.value as THREE.Color).setRGB(0.82, 0.9, 1.08);
-      grade.uniforms.uSaturation.value = 1.28; grade.uniforms.uVignette.value = 0.42;
-    }
-    sun.color.setRGB(1.0, 0.72, 0.42); sun.intensity = 5.6; renderer.toneMappingExposure = 1.06;
+    if (post.bloom) { post.bloom.strength = 0.22; post.bloom.threshold = 0.95; }
   }
   tpc.update(0.016, input, player.position, 0);
   updateWorld(0);
