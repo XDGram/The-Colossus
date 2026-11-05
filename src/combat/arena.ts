@@ -17,6 +17,12 @@ export class CombatArena {
   private spawns: { p: THREE.Vector3; yaw: number }[] = [];
   readonly director: AttackDirector;
   time = 0;
+  // Kept for spawning enemies later (encounter waves).
+  private assets!: { lib: import('three/examples/jsm/loaders/GLTFLoader.js').GLTF; ranger: import('three/examples/jsm/loaders/GLTFLoader.js').GLTF; warden: Awaited<ReturnType<typeof loadWardenAssets>> | null };
+  private scene!: THREE.Scene; private world!: WorldQuery; private rnd!: () => number; private serial = 0;
+  /** Called when an enemy is spawned / cleared (the combat system registers targets). */
+  onSpawn: ((b: EnemyBrain) => void) | null = null;
+  onClear: ((b: EnemyBrain) => void) | null = null;
 
   private constructor(visible: (pts: { x: number; y: number; z: number }[], requester: string) => boolean) { this.director = new AttackDirector(visible); }
 
@@ -48,8 +54,9 @@ export class CombatArena {
     const gl = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
     const [lib, ranger] = await Promise.all([gl.loadAsync(`${base}assets/models/enemies.glb`), gl.loadAsync(`${base}assets/models/ranger.glb`)]);
     const runners = +(spec.match(/r(\d)/)?.[1] ?? 0), breakers = +(spec.match(/b(\d)/)?.[1] ?? 0), wardens = +(spec.match(/w(\d)/)?.[1] ?? 0);
-    const warden = wardens ? await loadWardenAssets(base) : null;
+    const warden = wardens || spec === 'encounter' ? await loadWardenAssets(base) : null;
     const rnd = mulberry32(seed);
+    a.assets = { lib, ranger, warden }; a.scene = scene; a.world = world; a.rnd = rnd;
     const kinds = [...Array(wardens).fill('warden'), ...Array(breakers).fill('breaker'), ...Array(runners).fill('runner')] as ('runner' | 'breaker' | 'warden')[];
     kinds.forEach((kind, i) => {
       const e = kind === 'warden' ? new Enemy(kind, warden!.body, lib.animations, warden!.scan) : new Enemy(kind, kind === 'runner' ? lib : ranger, lib.animations);
@@ -65,6 +72,24 @@ export class CombatArena {
       a.spawns.push({ p: p.clone(), yaw: facing + Math.PI });
     });
     return a;
+  }
+
+  /** Spawn one enemy at a position, facing `yaw` (encounter waves). */
+  spawn(kind: 'runner' | 'breaker' | 'warden', p: THREE.Vector3, yaw: number) {
+    const { lib, ranger, warden } = this.assets;
+    const e = kind === 'warden' ? new Enemy(kind, warden!.body, lib.animations, warden!.scan) : new Enemy(kind, kind === 'runner' ? lib : ranger, lib.animations);
+    const q = p.clone(); q.y = this.world.height(q.x, q.z);
+    e.object.position.copy(q); e.object.rotation.y = yaw; e.groundY = q.y;
+    this.scene.add(e.object);
+    const b = new EnemyBrain(e, `${kind}#${++this.serial}`, this.director, this.world, this.rnd);
+    this.brains.push(b); this.spawns.push({ p: q.clone(), yaw });
+    this.onSpawn?.(b);
+    return b;
+  }
+  /** Remove every enemy (encounter restart). */
+  clear() {
+    for (const b of this.brains) { this.director.release(b.id); this.scene.remove(b.e.object); b.removed = true; this.onClear?.(b); }
+    this.brains.length = 0; this.spawns.length = 0;
   }
 
   /** Respawn every enemy at its spawn point (after the player's defeat). */

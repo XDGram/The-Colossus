@@ -36,12 +36,17 @@ export class CombatSystem {
   /** Called to restart after the player's defeat (respawn player and enemies). */
   onRestart: (() => void) | null = null;
 
+  /** When false, a defeat waits for the caller (encounter retry) instead of restarting after 3 s. */
+  autoRestart = true;
   constructor(readonly hits: HitWorld, private player: Player, private combat: PlayerCombat, private brains: EnemyBrain[]) {
-    for (const b of brains) {
-      this.vitals.set(b, this.freshVitals(b));
-      hits.addTarget({ id: b.id, capsule: () => ({ base: b.effective(), ...(b.e.kind === 'breaker' ? BODY.breaker : b.e.kind === 'warden' ? { ...BODY.breaker, radius: 0.42 } : BODY.runner) }), active: () => !b.dead && !b.removed });
-    }
+    for (const b of brains) this.add(b);
   }
+  /** Register an enemy (spawned later by an encounter). */
+  add(b: EnemyBrain) {
+    this.vitals.set(b, this.freshVitals(b));
+    this.hits.addTarget({ id: b.id, capsule: () => ({ base: b.effective(), ...(b.e.kind === 'breaker' ? BODY.breaker : b.e.kind === 'warden' ? { ...BODY.breaker, radius: 0.42 } : BODY.runner) }), active: () => !b.dead && !b.removed });
+  }
+  drop(b: EnemyBrain) { this.vitals.delete(b); this.hits.removeTarget(b.id); }
   freshVitals(b: EnemyBrain): Vitals { return { hp: HEALTH[b.e.cls], poise: 0, lastPoise: -99, meter: 0, lastMeter: -99, immuneUntil: -99 }; }
 
   update(dt: number) {
@@ -60,9 +65,10 @@ export class CombatSystem {
     // Enemy attacks → player.
     for (const b of this.brains) if (!b.dead && b.state === 'attack') this.enemyAttack(b);
     // Defeat and restart.
+    if (this.combat.state !== 'dead') this.deadAt = -1;
     if (this.combat.state === 'dead') {
       if (this.deadAt < 0) { this.deadAt = this.time; this.note('player defeated', 'player'); }
-      else if (this.time - this.deadAt > RESTART_DELAY) { this.deadAt = -1; this.restart(); }
+      else if (this.autoRestart && this.time - this.deadAt > RESTART_DELAY) { this.deadAt = -1; this.restart(); }
     }
   }
 

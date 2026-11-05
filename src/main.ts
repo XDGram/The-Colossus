@@ -290,7 +290,7 @@ async function main() {
   // The mentor exists only in the temple opening: at the protagonist's right shoulder, a half step
   // ahead, both facing the main gate as the invasion comes in. Not a companion; no other scene loads him.
   let mentor: Mentor | null = null;
-  if (sceneName === 'temple') {
+  if (sceneName === 'temple' && params.has('mentor')) {
     ui.status.textContent = 'Summoning the mentor';
     await frame();
     mentor = await Mentor.load(import.meta.env.BASE_URL);
@@ -319,9 +319,10 @@ async function main() {
   }
   // Dev-only behaviour arena (temple, ?combat=r2b1): enemy movement, spacing and attack permissions. No damage.
   let arena: import('./combat/arena').CombatArena | null = null;
-  if (sceneName === 'temple' && params.has('combat')) {
+  const encounterMode = sceneName === 'temple' && !params.has('combat') && !params.has('enemies');
+  if (sceneName === 'temple' && (params.has('combat') || encounterMode)) {
     const { CombatArena } = await import('./combat/arena');
-    arena = await CombatArena.create(params.get('combat') || 'r2b1', scene, import.meta.env.BASE_URL,
+    arena = await CombatArena.create(encounterMode ? 'encounter' : params.get('combat') || 'r2b1', scene, import.meta.env.BASE_URL,
       { height: (x, z) => Math.max(ground.height(x, z), colliders.floorAt(x, z, ground.height(x, z) + 0.6)), resolve: (x, z, y, r) => colliders.resolve(x, z, y, r),
         // Line of sight for warnings: sampled every 0.15 m against colliders (and the camera's solid test, e.g. roofs).
         lineBlocked: (a, b) => {
@@ -341,6 +342,13 @@ async function main() {
     combatSystem = new CombatSystem(hitWorld, player, combat, arena.brains);
     const home = player.position.clone(), homeYaw = player.facing;
     combatSystem.onRestart = () => { player.teleport(home.x, home.z); player.setFacing(homeYaw); arena!.reset(); };
+  }
+  // The temple fight (normal temple play): Warden confrontation, two waves, then the Warden.
+  let encounter: import('./combat/encounter').TempleEncounter | null = null;
+  if (encounterMode && arena && combatSystem) {
+    const { TempleEncounter } = await import('./combat/encounter');
+    encounter = new TempleEncounter(arena, combatSystem, combat!, player, camera,
+      { x: player.position.x, z: player.position.z, yaw: player.facing }, new THREE.Vector3(0, 0, 46.2));
   }
   // Development showcase of the invaders (temple only, ?enemies): no AI or combat.
   let enemyShowcase: import('./enemies/showcase').EnemyShowcase | null = null;
@@ -418,6 +426,7 @@ async function main() {
     enemyShowcase?.update(dt);
     arena?.update(dt, { position: player.position, facing: player.facing, radius: 0.38, attackKey: combat?.state === 'attack' ? `p${combat.attackInstance}` : null, mash: combat?.mashScore() ?? 0 });
     combatSystem?.update(dt);
+    if (started) encounter?.update(dt);
     if (debugCam) { camera.position.fromArray(debugCam[0]); camera.lookAt(...debugCam[1]); }
     else tpc.update(dt, input, player.position, Math.hypot(player.velocity.x, player.velocity.z));
     setVegetationTime(t);
@@ -451,7 +460,7 @@ async function main() {
   // Hooks used by automated playtests and screenshot capture.
   Object.assign(window, {
     __tlc: {
-      ready: true, stats, start, player, mentor, enemies: () => enemyShowcase, combat: () => combat, hits: () => hitWorld, hitEvents, arena: () => arena, combatSystem: () => combatSystem, tpc, input, renderer, scene, camera, post,
+      ready: true, stats, start, player, mentor, enemies: () => enemyShowcase, combat: () => combat, hits: () => hitWorld, hitEvents, arena: () => arena, combatSystem: () => combatSystem, encounter: () => encounter, tpc, input, renderer, scene, camera, post,
       pause: (p: boolean) => { paused = p; renderer.domElement.style.visibility = p ? 'hidden' : 'visible'; },
       /** Deterministic capture for automated tests: simulate n frames, render once, return a JPEG data URL. */
       step: (n: number, dt = 1 / 30, capture = true) => {
