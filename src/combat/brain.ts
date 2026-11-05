@@ -34,6 +34,7 @@ interface Personality {
   decide: [number, number];
 }
 const RUNNER: Personality = { radius: 0.38, walk: 1.6, jog: 4.3, turn: 9, nativeWalk: 1.45, nativeJog: 3.9, ring: [3, 5], decide: [1.2, 2.6] };
+// The Temple Warden moves like a Breaker; his body is the slimmer older warrior (native walk at his own scale).
 const BREAKER: Personality = { radius: 0.48, walk: 0.92, jog: 0.92, turn: 1.8, nativeWalk: 1.45 * 1.15 * 0.55, nativeJog: 1.45 * 1.15 * 0.55, hold: [2.0, 2.5], decide: [1.6, 3.0] };
 
 /** Tell (warning) before each attack (docs/combat.md §5) and whether it can be parried (glint colour). */
@@ -67,7 +68,7 @@ export class EnemyBrain {
   removed = false;
 
   constructor(readonly e: Enemy, readonly id: string, private director: AttackDirector, private world: WorldQuery, private rnd: () => number) {
-    this.p = e.kind === 'runner' ? RUNNER : BREAKER;
+    this.p = e.kind === 'runner' ? RUNNER : e.kind === 'warden' ? { ...BREAKER, radius: 0.42, hold: [1.2, 1.6] as [number, number], nativeWalk: 1.45 * 1.05 * 0.55, nativeJog: 1.45 * 1.05 * 0.55 } : BREAKER;
     this.orbitSide = rnd() < 0.5 ? -1 : 1;
     this.radiusWant = this.p.ring ? THREE.MathUtils.lerp(this.p.ring[0] + 0.4, this.p.ring[1] - 0.4, rnd()) : 2.25;
     this.nextDecision = THREE.MathUtils.lerp(this.p.decide[0], this.p.decide[1], rnd());
@@ -87,7 +88,7 @@ export class EnemyBrain {
   react(kind: 'flinch' | 'stagger' | 'dodge' | 'parry') {
     if (this.dead) return;
     this.release();
-    const r = this.e.kind === 'runner';
+    const r = this.e.cls === 'runner';
     if (kind === 'flinch') { this.set('flinch'); this.e.play((r ? 'flinchChest' : 'shudder') as never, 0.08); }
     else if (kind === 'stagger') { this.set('stagger'); this.e.play((r ? 'flinchHead' : 'stagger') as never, 0.12); if (r) this.e.rate = 0.43; }
     else if (kind === 'dodge' && r) this.startDodge();
@@ -136,12 +137,12 @@ export class EnemyBrain {
     const facePlayer = Math.atan2(toP.x, toP.z);
     let want = new THREE.Vector3();  // desired horizontal velocity
     let face: number | null = facePlayer;
-    let idleMove = this.e.kind === 'runner' ? 'idle' : 'guard';
+    let idleMove = this.e.cls === 'runner' ? 'idle' : 'guard';
 
     // Player starting an attack nearby: a Runner may dodge or parry (when free to).
     const newAttack = player.attackKey && player.attackKey !== this.lastKey;
     this.lastKey = player.attackKey;
-    if (newAttack && this.e.kind === 'runner' && dist < 2.6 && ['approach', 'hold', 'engage', 'reposition'].includes(this.state) && this.dodgeCool <= 0) {
+    if (newAttack && this.e.cls === 'runner' && dist < 2.6 && ['approach', 'hold', 'engage', 'reposition'].includes(this.state) && this.dodgeCool <= 0) {
       const r = this.rnd();
       const parry = Math.min(0.5, 0.15 + 0.1 * (player.mash ?? 0));
       if (r < 0.35) { this.dodgeCool = 3; this.startDodge(player); }
@@ -152,7 +153,7 @@ export class EnemyBrain {
       case 'approach': {
         const stopAt = this.p.ring ? this.p.ring[1] : this.p.hold![1];
         if (dist <= stopAt) { this.set('hold'); break; }
-        want = toP.clone().normalize().multiplyScalar(this.e.kind === 'runner' && dist > stopAt + 2 ? this.p.jog : this.p.walk);
+        want = toP.clone().normalize().multiplyScalar(this.e.cls === 'runner' && dist > stopAt + 2 ? this.p.jog : this.p.walk);
         face = null;
         break;
       }
@@ -160,21 +161,21 @@ export class EnemyBrain {
         if (this.p.ring) { want = this.orbit(me, player, others, dt); face = want.lengthSq() > 0.05 ? null : facePlayer; }
         else want = this.holdLine(me, player, dist);
         this.nextDecision -= dt;
-        if (this.e.kind === 'breaker') { this.farFor = dist > 5 ? this.farFor + dt : 0; if (this.farFor > 3) { this.tryAttack('charge', me, now); break; } }
+        if (this.e.cls === 'breaker') { this.farFor = dist > 5 ? this.farFor + dt : 0; if (this.farFor > 3) { this.tryAttack('charge', me, now); break; } }
         if (this.nextDecision <= 0) this.decide(me, player, dist, now);
         if (dist > (this.p.ring ? this.p.ring[1] + 1.5 : this.p.hold![1] + 1.5) && this.state === 'hold') this.set('approach');
         break;
       }
       case 'engage': {
         // Close in for a melee attack, then start it when the director allows (and the player can see the tell).
-        const range = this.attack === 'lunge' ? 3.2 : this.e.kind === 'runner' ? 1.25 : 2.2;
-        if (dist > range) want = toP.clone().normalize().multiplyScalar(this.e.kind === 'runner' ? this.p.jog : this.p.walk);
-        else if (this.director.tryStart(this.id, this.e.kind, now, this.tellPoints())) this.beginTell();
+        const range = this.attack === 'lunge' ? 3.2 : this.e.cls === 'runner' ? 1.25 : 2.2;
+        if (dist > range) want = toP.clone().normalize().multiplyScalar(this.e.cls === 'runner' ? this.p.jog : this.p.walk);
+        else if (this.director.tryStart(this.id, this.e.cls, now, this.tellPoints())) this.beginTell();
         if (this.stateT > 2.5) { this.attack = null; this.set('reposition'); }
         break;
       }
       case 'tell': {
-        face = this.e.kind === 'runner' ? facePlayer : null; // the Breaker commits to his line
+        face = this.e.cls === 'runner' ? facePlayer : null; // the Breaker commits to his line
         this.updateCue(now);
         if (this.stateT >= TELL[this.attack!].tell) { this.cue.visible = false; this.e.frozen = false; this.set('attack'); }
         break;
@@ -184,7 +185,7 @@ export class EnemyBrain {
         if (this.e.move !== this.attack) { this.release(); this.attack = null; this.set('reposition'); }
         break;
       case 'reposition': {
-        if (this.e.kind === 'runner') {
+        if (this.e.cls === 'runner') {
           // Back off 2-3 m, then return to circling.
           if (dist < 3.2 && this.stateT < 1.6) want = toP.clone().normalize().multiplyScalar(-this.p.walk * 1.4);
           else this.set('hold');
@@ -219,7 +220,7 @@ export class EnemyBrain {
   // ------------------------------------------------------------------ decisions
   private decide(me: THREE.Vector3, player: PlayerView, dist: number, now: number) {
     this.nextDecision = THREE.MathUtils.lerp(this.p.decide[0], this.p.decide[1], this.rnd());
-    if (this.e.kind === 'runner') {
+    if (this.e.cls === 'runner') {
       // Runners prefer to strike while the Breaker is committed (his attack in progress).
       const r = this.rnd() - (this.director.breakerAttacking() ? 0.1 : 0);
       let pick = r < 0.45 ? (this.rnd() < 0.5 ? 'slash' : 'slash2') : r < 0.7 ? 'flurry' : r < 0.85 ? 'lunge' : r < 0.95 ? 'pommel' : 'spin';
@@ -232,8 +233,10 @@ export class EnemyBrain {
       const meF = new THREE.Vector3(Math.sin(this.e.object.rotation.y), 0, Math.cos(this.e.object.rotation.y));
       const playerBehindMe = player.position.clone().sub(me).setY(0).normalize().dot(meF) < -0.17;
       let pick: string;
-      if (dist < 1.6 || playerBehindMe) pick = 'stamp';
-      else if (dist <= 2.6) pick = this.rnd() < 0.59 ? 'sweep' : 'smash';
+      // Ranges follow the holding distance (Breaker 2.0-2.5 m with the club; the Warden's katana holds 1.2-1.6 m).
+      const [h0, h1] = this.p.hold!;
+      if (dist < h0 - 0.4 || playerBehindMe) pick = 'stamp';
+      else if (dist <= h1 + 0.1) pick = this.rnd() < 0.59 ? 'sweep' : 'smash';
       else return; // keep closing in via hold
       void behindPlayer;
       this.tryAttack(pick, me, now);
@@ -241,7 +244,7 @@ export class EnemyBrain {
   }
   private tryAttack(name: string, _me: THREE.Vector3, now: number) {
     this.attack = name;
-    if (this.director.tryStart(this.id, this.e.kind, now, this.tellPoints())) this.beginTell();
+    if (this.director.tryStart(this.id, this.e.cls, now, this.tellPoints())) this.beginTell();
     else { this.attack = null; this.nextDecision = 0.4; }
   }
   private beginTell() {
@@ -271,7 +274,7 @@ export class EnemyBrain {
     const flank = wrap(player.facing + this.orbitSide * THREE.MathUtils.degToRad(100));
     // Stay out of an attacking Breaker's front arc.
     let goal = flank;
-    for (const o of others) if (o.e.kind === 'breaker' && o.state === 'attack' || o.e.kind === 'breaker' && o.state === 'tell') {
+    for (const o of others) if (o.e.cls === 'breaker' && o.state === 'attack' || o.e.cls === 'breaker' && o.state === 'tell') {
       const ba = Math.atan2(o.pos.x - player.position.x, o.pos.z - player.position.z);
       if (Math.abs(wrap(goal - ba)) < 0.9) goal = wrap(ba + Math.sign(wrap(goal - ba) || 1) * 1.2);
     }
@@ -323,7 +326,7 @@ export class EnemyBrain {
       this.blockedT = 0; this.unstuckCount++;
     }
     // Locomotion clip with feet matched to ground speed.
-    const wantMove = sp < 0.2 ? idleMove : sp < (this.p.walk + this.p.jog) / 2 || this.e.kind === 'breaker' ? 'walk' : 'jog';
+    const wantMove = sp < 0.2 ? idleMove : sp < (this.p.walk + this.p.jog) / 2 || this.e.cls === 'breaker' ? 'walk' : 'jog';
     if (this.e.move !== wantMove) this.e.play(wantMove as never, 0.2);
     this.e.rate = wantMove === 'walk' ? sp / this.p.nativeWalk : wantMove === 'jog' ? sp / this.p.nativeJog : 1;
   }

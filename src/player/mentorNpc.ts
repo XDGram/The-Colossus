@@ -7,36 +7,42 @@ import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { dressMentor, type MentorRig } from './mentor';
 import type { Colliders } from '../world/colliders';
 
+/** Loads the older warrior's body (Peasant + idle) and his aged head scan. Shared by the mentor NPC and the Temple Warden. */
+export async function loadWardenAssets(base: string) {
+  const gl = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
+  const tl = new THREE.TextureLoader();
+  const [body, head, col, nor] = await Promise.all([
+    gl.loadAsync(`${base}assets/models/mentor.glb`),
+    gl.loadAsync(`${base}assets/models/mentor_head/head.glb`),
+    tl.loadAsync(`${base}assets/models/mentor_head/color.webp`),
+    tl.loadAsync(`${base}assets/models/mentor_head/normal.webp`),
+  ]);
+  col.colorSpace = THREE.SRGBColorSpace; col.flipY = false; nor.flipY = false;
+  let geometry: THREE.BufferGeometry | null = null;
+  head.scene.traverse((o) => { if ((o as THREE.Mesh).isMesh) geometry = (o as THREE.Mesh).geometry; });
+  // Scan aged in the shader: hair and stubble grey, skin weathered (same as the approved preview).
+  const material = new THREE.MeshStandardMaterial({ map: col, normalMap: nor, normalScale: new THREE.Vector2(1.6, 1.6), roughness: 0.62 });
+  material.onBeforeCompile = (sh) => {
+    sh.fragmentShader = sh.fragmentShader.replace('#include <map_fragment>', `#include <map_fragment>
+      { float l = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
+        float hairMask = 1.0 - smoothstep(0.1, 0.26, l);
+        vec3 skin = mix(diffuseColor.rgb, vec3(l) * vec3(1.1, 0.82, 0.64), 0.4) * vec3(0.86, 0.74, 0.64);
+        diffuseColor.rgb = mix(skin * 0.92, vec3(0.5, 0.49, 0.47), hairMask * 0.85); }`);
+  };
+  return { body, scan: { geometry: geometry!, material } };
+}
+
 export class Mentor {
   readonly object = new THREE.Group();
   private mixer!: THREE.AnimationMixer;
   private rig!: MentorRig;
 
   static async load(base: string) {
-    const gl = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
-    const tl = new THREE.TextureLoader();
-    const [body, head, col, nor] = await Promise.all([
-      gl.loadAsync(`${base}assets/models/mentor.glb`),
-      gl.loadAsync(`${base}assets/models/mentor_head/head.glb`),
-      tl.loadAsync(`${base}assets/models/mentor_head/color.webp`),
-      tl.loadAsync(`${base}assets/models/mentor_head/normal.webp`),
-    ]);
-    col.colorSpace = THREE.SRGBColorSpace; col.flipY = false; nor.flipY = false;
-    let geometry: THREE.BufferGeometry | null = null;
-    head.scene.traverse((o) => { if ((o as THREE.Mesh).isMesh) geometry = (o as THREE.Mesh).geometry; });
-    // Scan aged in the shader: hair and stubble grey, skin weathered (same as the approved preview).
-    const material = new THREE.MeshStandardMaterial({ map: col, normalMap: nor, normalScale: new THREE.Vector2(1.6, 1.6), roughness: 0.62 });
-    material.onBeforeCompile = (sh) => {
-      sh.fragmentShader = sh.fragmentShader.replace('#include <map_fragment>', `#include <map_fragment>
-        { float l = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
-          float hairMask = 1.0 - smoothstep(0.1, 0.26, l);
-          vec3 skin = mix(diffuseColor.rgb, vec3(l) * vec3(1.1, 0.82, 0.64), 0.4) * vec3(0.86, 0.74, 0.64);
-          diffuseColor.rgb = mix(skin * 0.92, vec3(0.5, 0.49, 0.47), hairMask * 0.85); }`);
-    };
+    const { body, scan } = await loadWardenAssets(base);
     const m = new Mentor();
     const model = clone(body.scene);
     m.object.add(model);
-    m.rig = dressMentor(model, { geometry: geometry!, material });
+    m.rig = dressMentor(model, scan);
     model.traverse((o) => { if ((o as THREE.Mesh).isMesh) { o.castShadow = o.receiveShadow = true; (o as THREE.Mesh).frustumCulled = false; } });
     m.mixer = new THREE.AnimationMixer(model);
     const idle = m.mixer.clipAction(body.animations.find((a) => a.name === 'Idle_Loop')!);

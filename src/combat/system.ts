@@ -39,10 +39,10 @@ export class CombatSystem {
   constructor(readonly hits: HitWorld, private player: Player, private combat: PlayerCombat, private brains: EnemyBrain[]) {
     for (const b of brains) {
       this.vitals.set(b, this.freshVitals(b));
-      hits.addTarget({ id: b.id, capsule: () => ({ base: b.effective(), ...(b.e.kind === 'breaker' ? BODY.breaker : BODY.runner) }), active: () => !b.dead && !b.removed });
+      hits.addTarget({ id: b.id, capsule: () => ({ base: b.effective(), ...(b.e.kind === 'breaker' ? BODY.breaker : b.e.kind === 'warden' ? { ...BODY.breaker, radius: 0.42 } : BODY.runner) }), active: () => !b.dead && !b.removed });
     }
   }
-  freshVitals(b: EnemyBrain): Vitals { return { hp: HEALTH[b.e.kind], poise: 0, lastPoise: -99, meter: 0, lastMeter: -99, immuneUntil: -99 }; }
+  freshVitals(b: EnemyBrain): Vitals { return { hp: HEALTH[b.e.cls], poise: 0, lastPoise: -99, meter: 0, lastMeter: -99, immuneUntil: -99 }; }
 
   update(dt: number) {
     this.time += dt;
@@ -78,9 +78,9 @@ export class CombatSystem {
     const facing = new THREE.Vector3(Math.sin(b.e.object.rotation.y + b.e.pivot.rotation.y), 0, Math.cos(b.e.object.rotation.y + b.e.pivot.rotation.y));
     const front = toPlayer.dot(facing) > 0.5; // within 60 deg of where the enemy faces
     // A parrying Runner turns the cut aside and stuns the player.
-    if (b.e.kind === 'runner' && b.parrying && front) { this.combat.parriedByEnemy(); this.note('enemy parried', b.id, undefined, move); return; }
+    if (b.e.cls === 'runner' && b.parrying && front) { this.combat.parriedByEnemy(); this.note('enemy parried', b.id, undefined, move); return; }
     // The Breaker's guard blocks frontal Cut 1 / Cut 2 when he isn't attacking; it pushes the player back.
-    if (b.e.kind === 'breaker' && front && (move === 'cut1' || move === 'cut2') && ['hold', 'reposition', 'approach'].includes(b.state)) {
+    if (b.e.cls === 'breaker' && front && (move === 'cut1' || move === 'cut2') && ['hold', 'reposition', 'approach'].includes(b.state)) {
       this.combat.pushFrom(b.effective(), 0.3); this.note('guard blocked', b.id, 0, move); return;
     }
     const open = b.isOpen();
@@ -89,7 +89,7 @@ export class CombatSystem {
     this.note('hit', b.id, dmg, `${move}${open ? ' (open x1.5)' : ''} hp ${v.hp}`);
     if (v.hp <= 0) { b.kill(); this.note('killed', b.id); return; }
     const m = PLAYER_MOVES[move];
-    if (b.e.kind === 'runner') {
+    if (b.e.cls === 'runner') {
       // Poise: a break flinches him and interrupts his attack only before its first hit has landed.
       const breaks = m.poise === 'break';
       v.poise += breaks ? POISE.runner : (m.poise as number) * (open ? OPEN_METER : 1); v.lastPoise = this.time;
@@ -125,7 +125,7 @@ export class CombatSystem {
     const chest = e.chest();
     moves.hits.forEach((h, n) => {
       const key = `${b.id}#${e.moveInstance}#${n}`;
-      const def = ENEMY_HITS[hitKey(e.kind, e.move, n)];
+      const def = ENEMY_HITS[hitKey(e.cls, e.move, n)];
       if (!def) return;
       let evs: HitEvent[] = [];
       if (e.move === 'charge') {
@@ -138,7 +138,7 @@ export class CombatSystem {
       } else if (Math.abs(e.time - h.t) <= h.window) {
         for (const w of e.weapons()) evs.push(...this.hits.sweepWeapon(key, b.id, w, chest));
       }
-      for (const ev of evs) if (ev.target === 'player') this.enemyHitsPlayer(b, def, hitKey(e.kind, e.move, n), ev);
+      for (const ev of evs) if (ev.target === 'player') this.enemyHitsPlayer(b, def, hitKey(e.cls, e.move, n), ev);
     });
   }
   private enemyHitsPlayer(b: EnemyBrain, def: typeof ENEMY_HITS[string], name: string, ev: HitEvent) {
@@ -148,7 +148,7 @@ export class CombatSystem {
     if (b.e.move === 'charge') b.stopCharge();
     if (out === 'parried') {
       const v = this.vitals.get(b)!;
-      if (b.e.kind === 'runner') { v.poise = 0; b.react('stagger'); this.note('parried: runner staggered 1.0 s', b.id); }
+      if (b.e.cls === 'runner') { v.poise = 0; b.react('stagger'); this.note('parried: runner staggered 1.0 s', b.id); }
       else if (this.time >= v.immuneUntil) this.addMeter(b, v, METER.parry, 'sweep parry');
     }
     void ev;

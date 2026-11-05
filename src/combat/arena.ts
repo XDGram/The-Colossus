@@ -5,6 +5,7 @@ import { Enemy } from '../enemies/enemy';
 import { AttackDirector } from './director';
 import { EnemyBrain, type PlayerView, type WorldQuery } from './brain';
 import { mulberry32 } from '../core/noise';
+import { loadWardenAssets } from '../player/mentorNpc';
 import { segSegDistance, type Capsule } from './hits';
 
 /**
@@ -29,7 +30,7 @@ export class CombatArena {
       camera.updateMatrixWorld();
       const eye = camera.getWorldPosition(new THREE.Vector3());
       const bodies: Capsule[] = [
-        ...a.brains.filter((b) => b.id !== requester && !b.dead && !b.removed).map((b) => ({ base: b.effective(), radius: b.p.radius, bottom: 0.1, top: b.e.kind === 'breaker' ? 2.0 : 1.75 })),
+        ...a.brains.filter((b) => b.id !== requester && !b.dead && !b.removed).map((b) => ({ base: b.effective(), radius: b.p.radius, bottom: 0.1, top: b.e.cls === 'breaker' ? 2.0 : 1.75 })),
         ...occluders(),
       ];
       return pts.every((pt) => {
@@ -46,16 +47,17 @@ export class CombatArena {
     a = new CombatArena(visible);
     const gl = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
     const [lib, ranger] = await Promise.all([gl.loadAsync(`${base}assets/models/enemies.glb`), gl.loadAsync(`${base}assets/models/ranger.glb`)]);
-    const runners = +(spec.match(/r(\d)/)?.[1] ?? 0), breakers = +(spec.match(/b(\d)/)?.[1] ?? 0);
+    const runners = +(spec.match(/r(\d)/)?.[1] ?? 0), breakers = +(spec.match(/b(\d)/)?.[1] ?? 0), wardens = +(spec.match(/w(\d)/)?.[1] ?? 0);
+    const warden = wardens ? await loadWardenAssets(base) : null;
     const rnd = mulberry32(seed);
-    const kinds = [...Array(breakers).fill('breaker'), ...Array(runners).fill('runner')] as ('runner' | 'breaker')[];
+    const kinds = [...Array(wardens).fill('warden'), ...Array(breakers).fill('breaker'), ...Array(runners).fill('runner')] as ('runner' | 'breaker' | 'warden')[];
     kinds.forEach((kind, i) => {
-      const e = new Enemy(kind, kind === 'runner' ? lib : ranger, lib.animations);
+      const e = kind === 'warden' ? new Enemy(kind, warden!.body, lib.animations, warden!.scan) : new Enemy(kind, kind === 'runner' ? lib : ranger, lib.animations);
       const spread = (i - (kinds.length - 1) / 2) * 2.2;
       const f = new THREE.Vector3(Math.sin(facing), 0, Math.cos(facing)), r = new THREE.Vector3(f.z, 0, -f.x);
-      const p = origin.clone().addScaledVector(f, kind === 'breaker' ? 5.5 : 6.2).addScaledVector(r, spread);
+      const p = origin.clone().addScaledVector(f, kind !== 'runner' ? 5.5 : 6.2).addScaledVector(r, spread);
       // Nudge the spawn out of any obstacle.
-      [p.x, p.z] = world.resolve(p.x, p.z, world.height(p.x, p.z), kind === 'breaker' ? 0.6 : 0.5);
+      [p.x, p.z] = world.resolve(p.x, p.z, world.height(p.x, p.z), kind !== 'runner' ? 0.6 : 0.5);
       p.y = world.height(p.x, p.z);
       e.object.position.copy(p); e.object.rotation.y = facing + Math.PI;
       scene.add(e.object);

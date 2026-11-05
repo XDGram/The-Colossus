@@ -3,13 +3,17 @@ import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { dressRunner } from './runner';
 import { BREAKER_SCALE, CLUB, dressBreaker } from './breaker';
+import { dressMentor, type HeadScan, type MentorRig } from '../player/mentor';
+import { Dresser, handMount, makeMaterials } from './kit';
 import { calibrateHand, wpos, wquat, type HandCal } from './ik';
 import { TwoHandGrip, type GripResult } from './twohand';
 import type { WeaponSample } from '../combat/hits';
 import { applyLayer, type LayerCtx } from './custom';
 import { BREAKER, RUNNER, type BreakerMove, type ClubMode, type MoveDef, type RunnerMove } from './moves';
 
-export type EnemyKind = 'runner' | 'breaker';
+/** 'warden' = the Temple Warden: the older warrior's model and katana with the Iron Breaker's moveset and combat class. */
+export type EnemyKind = 'runner' | 'breaker' | 'warden';
+export type EnemyClass = 'runner' | 'breaker';
 export type MoveName<K extends EnemyKind> = K extends 'runner' ? RunnerMove : BreakerMove;
 
 /** Fixed two-handed stances (relative to the enemy: right, forward, up in metres; club direction). */
@@ -29,6 +33,11 @@ export class Enemy<K extends EnemyKind = EnemyKind> {
   readonly model: THREE.Object3D;
   readonly bones: Record<string, THREE.Bone> = {};
   readonly moves: Record<string, MoveDef>;
+  /** Behaviour/combat class (the Warden fights as a Breaker). */
+  readonly cls: EnemyClass;
+  private warden?: MentorRig;
+  /** Weapon segment along the mount's +Y: [from, to, radius] (club head, or the Warden's katana blade). */
+  private weaponSeg: [number, number, number] = [0.6, 1.5, 0.085];
   private mixer: THREE.AnimationMixer;
   private clips = new Map<string, THREE.AnimationClip>();
   private cal: { l: HandCal; r: HandCal };
@@ -47,7 +56,8 @@ export class Enemy<K extends EnemyKind = EnemyKind> {
   frozen = false;
   groundY = 0;
 
-  constructor(readonly kind: K, body: GLTF, anims: THREE.AnimationClip[]) {
+  constructor(readonly kind: K, body: GLTF, anims: THREE.AnimationClip[], scan?: HeadScan) {
+    this.cls = kind === 'runner' ? 'runner' : 'breaker';
     this.model = clone(body.scene);
     if (kind === 'breaker') this.model.scale.setScalar(BREAKER_SCALE);
     this.object.add(this.pivot);
@@ -59,14 +69,33 @@ export class Enemy<K extends EnemyKind = EnemyKind> {
     });
     this.cal = { l: calibrateHand(this.bones, 'l'), r: calibrateHand(this.bones, 'r') };
     if (kind === 'runner') this.blades = dressRunner(this.model).blades;
-    else {
+    else if (kind === 'warden') {
+      // The older warrior exactly as approved (model, head, costume, katana), drawn sword in hand.
+      this.warden = dressMentor(this.model, scan);
+      this.warden.setDrawn(true);
+      // Weapon mount for the two-handed grip, at the right-hand grip point, with +Y along HIS katana blade.
+      const bladeObj = this.bones['hand_r'].children.find((c) => c.type === 'Group' || c.type === 'Object3D' && c.children.length) ?? null;
+      this.mount = handMount(new Dresser(this.model, makeMaterials('warden-mount')), 'r');
+      if (bladeObj) {
+        const box = new THREE.Box3().setFromObject(bladeObj);
+        const c = box.getCenter(new THREE.Vector3());
+        const g = THREE.MathUtils.clamp(0, 0, 1); void g;
+        const from = new THREE.Vector3().setFromMatrixPosition(this.mount.matrixWorld);
+        const dirW = c.sub(from).normalize();
+        const hq = this.bones['hand_r'].getWorldQuaternion(new THREE.Quaternion());
+        const dirL = dirW.applyQuaternion(hq.invert());
+        this.mount.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dirL);
+      }
+      this.weaponSeg = [0.08, 0.85, 0.03];
+      this.grip = new TwoHandGrip(this.bones, this.cal, { tipLen: 0.85, pommelLen: 0.22, headR: 0.03, spacing: 0.15 });
+    } else {
       const parts = dressBreaker(this.model);
       this.mount = parts.club;
       this.grip = new TwoHandGrip(this.bones, this.cal, { tipLen: CLUB.tip, pommelLen: CLUB.pommel, headR: CLUB.headR, spacing: CLUB.spacing });
     }
     this.model.traverse((o) => { if ((o as THREE.Mesh).isMesh) { o.castShadow = o.receiveShadow = true; (o as THREE.Mesh).frustumCulled = false; } });
     for (const c of anims) this.clips.set(c.name, c);
-    this.moves = kind === 'runner' ? RUNNER : BREAKER;
+    this.moves = this.cls === 'runner' ? RUNNER : BREAKER;
     this.mixer = new THREE.AnimationMixer(this.model);
     this.play('idle' as MoveName<K>, 0);
   }
@@ -133,6 +162,8 @@ export class Enemy<K extends EnemyKind = EnemyKind> {
     if (m.under) put(this.clips.get(m.under)!, t % this.clips.get(m.under)!.duration, w * (1 - mw));
     if (this.prev && w < 1) { const p = this.sample(this.prev.move, this.prev.time + this.fade); put(p.clip, p.time, 1 - w); }
     this.mixer.update(0);
+    // The Warden keeps his older, heavier carriage over every clip.
+    if (this.warden) { this.object.updateMatrixWorld(true); this.warden.applyPosture(); }
     this.object.updateMatrixWorld(true);
 
     // Frame of reference for layers and stances.
@@ -189,7 +220,7 @@ export class Enemy<K extends EnemyKind = EnemyKind> {
       return { hilt: m.localToWorld(new THREE.Vector3(0, a, 0)), tip: m.localToWorld(new THREE.Vector3(0, b, 0)), radius };
     };
     if (this.blades) return [seg(this.blades.r, 0.07, 0.5, 0.03), seg(this.blades.l, 0.07, 0.5, 0.03)];
-    return [seg(this.mount!, 0.6, 1.5, 0.085)];
+    return [seg(this.mount!, this.weaponSeg[0], this.weaponSeg[1], this.weaponSeg[2])];
   }
   /** Chest position (line-of-sight origin for hits). */
   chest() { return wpos(this.bones['spine_03']); }

@@ -38,7 +38,7 @@ export class EnemyShowcase {
   update(dt: number) {
     this.enemies.forEach((e, i) => {
       if (this.auto) {
-        const list = PLAYLIST[e.kind];
+        const list = PLAYLIST[e.cls];
         const loopMove = e.moves[e.move].loop || e.moves[e.move].hold;
         this.hold[i] += dt;
         const finished = loopMove ? this.hold[i] > 3 : e.time >= e.duration(e.move) - 0.02;

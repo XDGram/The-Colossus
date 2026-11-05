@@ -332,6 +332,8 @@ async function main() {
       camera, player.position.clone(), player.facing, +(params.get('seed') || 1),
       () => (mentor ? [{ base: mentor.object.position.clone(), radius: 0.42, bottom: 0.1, top: 1.85 }] : []));
   }
+  // The older warrior is now the Temple Warden (antagonist): in an arena that includes him, the friendly NPC is hidden.
+  if (arena && mentor && /w\d/.test(params.get('combat') || '')) { mentor.object.visible = false; mentor.object.position.y -= 100; }
   // Combat loop (Stage 2C): hits, damage, health and reactions between the player and the arena's enemies.
   let combatSystem: import('./combat/system').CombatSystem | null = null;
   if (arena && combat && hitWorld) {
