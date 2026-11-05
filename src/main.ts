@@ -17,7 +17,7 @@ import { SunBeams } from './temple/light';
 import { CardField, crossedCards, flowerCard, grassGenerator, flowerGenerator, bushGeometry, vineGeometry, Birds, setFoliageTime } from './world/foliage';
 import { ThirdPersonCamera, TEMPLE_RIG } from './player/camera';
 import { Mentor } from './player/mentorNpc';
-import { paintInkArt, TIPS } from './ui/inkart';
+import { TIPS } from './ui/inkart';
 import type { PlayerCombat } from './player/combat';
 import { ground } from './world/ground';
 import { PLAY, COLOSSUS_POS, SITES, terrainHeight } from './world/heightfield';
@@ -39,17 +39,20 @@ const ui = {
   fps: document.getElementById('fps')!,
   quality: document.getElementById('quality')!,
 };
-// Loading screen: ink-wash art and rotating combat tips (until the menu appears).
+// Loading screen: rotating painted key art (crossfade + slow zoom) and combat tips, until the menu appears.
 {
-  const art = document.getElementById('inkart') as HTMLCanvasElement | null;
-  if (art) { paintInkArt(art); addEventListener('resize', () => { if (!ui.loader.classList.contains('done')) paintInkArt(art); }); }
+  const slides = Array.from(document.querySelectorAll<HTMLElement>('#loader .ld-slide'));
+  let si = 0;
   const th = document.getElementById('tiph'), tt = document.getElementById('tipt');
   let k = Math.floor(Math.random() * TIPS.length);
   const show = () => { if (!th || !tt) return; th.textContent = TIPS[k][0]; tt.textContent = TIPS[k][1]; k = (k + 1) % TIPS.length; };
   show();
-  const timer = setInterval(() => { if (ui.loader.classList.contains('done')) { clearInterval(timer); return; } if (tt) { tt.style.opacity = '0'; setTimeout(() => { show(); tt.style.opacity = '1'; }, 500); } }, 5000);
+  const timer = setInterval(() => {
+    if (ui.loader.classList.contains('done')) { clearInterval(timer); return; }
+    if (slides.length) { slides[si].classList.remove('on'); si = (si + 1) % slides.length; slides[si].classList.add('on'); }
+    if (tt) { tt.style.opacity = '0'; setTimeout(() => { show(); tt.style.opacity = '1'; }, 500); }
+  }, 5000);
 }
-
 
 async function main() {
   const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -71,6 +74,7 @@ async function main() {
   const progress = () => {
     const p = pHdr * 0.25 + pAssets * 0.65;
     ui.bar.style.width = `${(p * 100).toFixed(0)}%`;
+    const pct = document.getElementById('pct'); if (pct) pct.textContent = `${(p * 100).toFixed(0)}%`;
   };
   ui.status.textContent = 'Gathering the sky';
   const atmo = await loadAtmosphere(renderer, `${import.meta.env.BASE_URL}assets/hdri/sky_2k.hdr`, (p) => { pHdr = p; progress(); }, sceneName === 'temple' ? 22 : undefined,
@@ -385,12 +389,14 @@ async function main() {
   await renderer.compileAsync(scene, camera);
 
   // ---- loop ----
-  ui.loader.classList.add('done');
+  // Loading finished: the painted art stays behind the menu (home screen) until the fight starts.
+  ui.loader.classList.add('ready');
   ui.title.classList.add('show');
   let started = false;
   const start = () => {
     if (started) return;
     started = true;
+    ui.loader.classList.add('done');
     ui.title.classList.remove('show');
     ui.hint.classList.add('show');
     setTimeout(() => ui.hint.classList.remove('show'), 9000);
