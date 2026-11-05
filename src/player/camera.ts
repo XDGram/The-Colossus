@@ -17,8 +17,9 @@ export const VALLEY_RIG: CameraRig = { distance: 4.6, pitch: -0.08, pivotHeight:
 
 /** Temple framing: player smaller and lower in frame, more ground ahead, full rooflines visible. */
 export const TEMPLE_RIG: CameraRig = {
-  distance: 5.6, pitch: THREE.MathUtils.degToRad(-12), pivotHeight: 1.75, shoulder: 0.35, fov: 58,
-  indoor: { distance: 3.8, minPitch: THREE.MathUtils.degToRad(-25) },
+  // Close third-person framing (Ghost of Tsushima style): short boom, over the right shoulder, near-level view.
+  distance: 3.4, pitch: THREE.MathUtils.degToRad(-6), pivotHeight: 1.55, shoulder: 0.55, fov: 55,
+  indoor: { distance: 2.8, minPitch: THREE.MathUtils.degToRad(-18) },
 };
 
 /** Third-person orbit camera with smoothing, zoom, shoulder offset and terrain/wall collision. */
