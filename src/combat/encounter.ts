@@ -79,7 +79,7 @@ export class TempleEncounter {
   private startIntro() {
     this.phase = 'intro'; this.t = 0;
     // The Warden stands in the gateway, sword drawn, and speaks; then withdraws and sends his soldiers.
-    const p = this.gateSpot(0, 1.5);
+    const p = this.gateSpot(1.8, -1.5) // just inside the gate, off the player line so he is in view;
     this.warden = this.arena.spawn('warden', p, this.faceHome(p));
     this.wardenUpdate = this.warden.update.bind(this.warden);
     const w = this.warden;
