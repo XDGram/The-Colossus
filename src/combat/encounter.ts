@@ -91,8 +91,8 @@ export class TempleEncounter {
   /** Spawn points: the main gate, and the covered corridors on both sides of the courtyard (enemies come out of the buildings). */
   private spots = {
     gate: (i: number) => this.gateSpot((i % 3 - 1) * 2.2, -(i % 2) * 1.2),
-    left: (i: number) => new THREE.Vector3(-33, 0, i % 2 ? 12 : 28),
-    right: (i: number) => new THREE.Vector3(33, 0, i % 2 ? 12 : 28),
+    left: (i: number) => new THREE.Vector3(-33, 0, [28, 12, 20, 4][i % 4]),
+    right: (i: number) => new THREE.Vector3(33, 0, [28, 12, 20, 4][i % 4]),
   };
   private queue: { kind: 'runner' | 'breaker'; at: 'gate' | 'left' | 'right' }[] = [];
   private nextSpawn = 0;
@@ -103,16 +103,24 @@ export class TempleEncounter {
   /** Enemies arrive one at a time (every 1.2 s), so the assault streams in. */
   private trickle() {
     if (!this.queue.length || this.t < this.nextSpawn) return;
-    const q = this.queue.shift()!; this.nextSpawn = this.t + 1.2;
+    const q = this.queue.shift()!; this.nextSpawn = this.t + 0.8;
     const p = this.spots[q.at](this.spawned++);
     this.wave.push(this.arena.spawn(q.kind, p, this.faceHome(p)));
   }
   private startWave(n: 1 | 2 | 3) {
     this.phase = n === 1 ? 'wave1' : n === 2 ? 'wave2' : 'wave3';
     const R = (at: 'gate' | 'left' | 'right') => ({ kind: 'runner' as const, at }), B = { kind: 'breaker' as const, at: 'gate' as const };
-    this.spawnWave(n === 1 ? [R('gate'), B, R('left'), R('right'), R('gate')]
-      : n === 2 ? [R('left'), R('right'), B, R('gate'), R('left'), R('right')]
-      : [B, R('left'), R('right'), R('gate'), B, R('left')]);
+    // Large waves streaming from the gate and both side halls (two attack at a time; the rest circle).
+    const mix = (runners: number, breakers: number) => {
+      const out: { kind: 'runner' | 'breaker'; at: 'gate' | 'left' | 'right' }[] = [];
+      const at = ['left', 'right', 'gate'] as const;
+      const total = runners + breakers;
+      for (let i = 0; i < total; i++) {
+        if (i % 4 === 1 && breakers > 0) { breakers--; out.push(B); } else if (runners > 0) { runners--; out.push(R(at[i % 3])); } else { breakers--; out.push(B); }
+      }
+      return out;
+    };
+    this.spawnWave(n === 1 ? mix(8, 2) : n === 2 ? mix(9, 3) : mix(10, 4));
     this.caption('', n === 1 ? 'Invaders storm the temple.' : n === 2 ? 'More pour out of the halls.' : 'The Warden sends his last soldiers.', 2.5);
   }
   private startWarden() {
