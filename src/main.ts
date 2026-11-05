@@ -17,6 +17,7 @@ import { SunBeams } from './temple/light';
 import { CardField, crossedCards, flowerCard, grassGenerator, flowerGenerator, bushGeometry, vineGeometry, Birds, setFoliageTime } from './world/foliage';
 import { ThirdPersonCamera, TEMPLE_RIG } from './player/camera';
 import { Mentor } from './player/mentorNpc';
+import { paintInkArt, TIPS } from './ui/inkart';
 import type { PlayerCombat } from './player/combat';
 import { ground } from './world/ground';
 import { PLAY, COLOSSUS_POS, SITES, terrainHeight } from './world/heightfield';
@@ -26,7 +27,8 @@ const params = new URLSearchParams(location.search);
 const quality: Quality = (params.get('quality') as Quality) || (localStorage.getItem('tlc-quality') as Quality) || 'high';
 const debug = params.has('debug');
 // The temple compound is in development; the valley stays the default until it is approved.
-const sceneName = params.get('scene') === 'temple' ? 'temple' : 'valley';
+// The temple fight is the game; the valley (exploration) stays reachable with ?scene=valley.
+const sceneName = params.get('scene') === 'valley' ? 'valley' : 'temple';
 
 const ui = {
   loader: document.getElementById('loader')!,
@@ -37,6 +39,17 @@ const ui = {
   fps: document.getElementById('fps')!,
   quality: document.getElementById('quality')!,
 };
+// Loading screen: ink-wash art and rotating combat tips (until the menu appears).
+{
+  const art = document.getElementById('inkart') as HTMLCanvasElement | null;
+  if (art) { paintInkArt(art); addEventListener('resize', () => { if (!ui.loader.classList.contains('done')) paintInkArt(art); }); }
+  const th = document.getElementById('tiph'), tt = document.getElementById('tipt');
+  let k = Math.floor(Math.random() * TIPS.length);
+  const show = () => { if (!th || !tt) return; th.textContent = TIPS[k][0]; tt.textContent = TIPS[k][1]; k = (k + 1) % TIPS.length; };
+  show();
+  const timer = setInterval(() => { if (ui.loader.classList.contains('done')) { clearInterval(timer); return; } if (tt) { tt.style.opacity = '0'; setTimeout(() => { show(); tt.style.opacity = '1'; }, 500); } }, 5000);
+}
+
 
 async function main() {
   const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -384,7 +397,14 @@ async function main() {
     input.lock();
   };
   renderer.domElement.addEventListener('click', () => (started ? input.lock() : start()));
-  ui.title.addEventListener('click', start);
+  // Main menu: play the temple fight; the valley is locked (coming soon); controls panel; graphics toggle.
+  document.getElementById('m-play')?.addEventListener('click', (e) => { e.stopPropagation(); start(); });
+  document.getElementById('m-controls')?.addEventListener('click', (e) => { e.stopPropagation(); document.getElementById('ctl')?.classList.toggle('open'); });
+  const gfx = document.getElementById('m-gfx');
+  if (gfx) {
+    gfx.textContent = `Graphics: ${quality === 'high' ? 'High' : 'Low'}`;
+    gfx.addEventListener('click', (e) => { e.stopPropagation(); localStorage.setItem('tlc-quality', quality === 'high' ? 'low' : 'high'); location.reload(); });
+  }
   addEventListener('keydown', (e) => {
     if (!started && (e.code === 'Enter' || e.code === 'Space')) start();
     if (e.code === 'KeyG') {

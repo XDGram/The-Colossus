@@ -22,6 +22,30 @@
       #title { opacity: 0; background: linear-gradient(to bottom, rgba(8,9,8,0.55), rgba(8,9,8,0) 45%, rgba(8,9,8,0) 70%, rgba(8,9,8,0.5)); justify-content: flex-start; padding-top: 14vh; }
       #title.show { opacity: 1; pointer-events: auto; cursor: pointer; }
       #title .scene { margin-top: 26px; font-size: 12px; letter-spacing: 0.4em; text-transform: uppercase; color: var(--dim); }
+      /* Loading screen: ink-wash art with title, combat tip and a brush-thin progress line. */
+      #loader { background: #e9e3d6; color: #15120f; justify-content: flex-end; align-items: stretch; }
+      #inkart { position: absolute; inset: 0; width: 100%; height: 100%; }
+      #loader .ld-title { position: absolute; left: max(24px, 5vw); top: max(20px, 5vh); text-align: left; }
+      #loader .ld-title .name { color: #15120f; text-shadow: none; font-size: clamp(22px, 3.4vw, 48px); }
+      #loader .ld-title .sub { color: #5a4d3e; }
+      #loader .ld-tip { position: relative; margin: 0 max(24px, 6vw) 4vh; max-width: 640px; padding: 14px 18px; background: rgba(233,227,214,0.82); border-left: 3px solid #b3261e; }
+      #loader .ld-tip-h { font: 600 11px Inter, sans-serif; letter-spacing: 0.28em; text-transform: uppercase; color: #b3261e; margin-bottom: 6px; }
+      #loader .ld-tip-t { font-family: 'Cormorant Garamond', Georgia, serif; font-size: clamp(16px, 1.9vw, 22px); line-height: 1.35; color: #15120f; transition: opacity 0.5s; }
+      #loader .ld-foot { position: relative; margin: 0 max(24px, 6vw) 5vh; display: flex; align-items: center; gap: 16px; }
+      #loader .track { margin: 0; width: min(420px, 60vw); height: 2px; background: rgba(21,18,15,0.18); }
+      #loader #bar { background: #15120f; }
+      #loader #status { margin: 0; color: #5a4d3e; }
+      /* Main menu. */
+      #title .menu { display: flex; flex-direction: column; gap: 10px; margin-top: 7vh; align-items: center; }
+      #title .mbtn { pointer-events: auto; min-width: 260px; padding: 12px 20px; background: rgba(10,10,9,0.45); color: var(--ink); border: 1px solid rgba(236,230,216,0.35); font: 600 13px Inter, sans-serif; letter-spacing: 0.24em; text-transform: uppercase; cursor: pointer; }
+      #title .mbtn:hover:not([disabled]) { background: rgba(179,38,30,0.55); border-color: #d0453b; }
+      #title #m-play { background: rgba(179,38,30,0.7); border-color: #d0453b; }
+      #title .mbtn.locked { opacity: 0.55; cursor: not-allowed; }
+      #title .mbtn.locked span { display: block; margin-top: 4px; font-size: 10px; letter-spacing: 0.3em; color: #c9a35b; }
+      #title .mbtn.locked::before { content: '🔒 '; }
+      #title .ctl-panel { display: none; margin-top: 18px; padding: 14px 18px; background: rgba(10,10,9,0.6); border: 1px solid rgba(236,230,216,0.25); font-size: 13px; line-height: 1.9; letter-spacing: 0.04em; pointer-events: auto; }
+      #title .ctl-panel.open { display: block; }
+      #title .ctl-panel b { color: #c9a35b; font-weight: 600; }
       #title .begin { position: absolute; bottom: 12vh; font-size: 13px; letter-spacing: 0.3em; text-transform: uppercase; animation: pulse 2.6s ease-in-out infinite; }
       @keyframes pulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
       #hint { opacity: 0; justify-content: flex-end; align-items: flex-start; padding: 0 0 28px 28px; }
@@ -51,16 +75,24 @@
   <body>
     <div id="app"></div>
     <div id="loader" class="overlay">
-      <h1 class="name">The Last Colossus</h1>
-      <div class="sub">The First Awakening</div>
-      <div class="track"><div id="bar"></div></div>
-      <div id="status">Loading</div>
+      <canvas id="inkart"></canvas>
+      <div class="ld-title"><h1 class="name">The Last Colossus</h1><div class="sub">The First Awakening</div></div>
+      <div class="ld-tip"><div class="ld-tip-h" id="tiph"></div><div class="ld-tip-t" id="tipt"></div></div>
+      <div class="ld-foot"><div class="track"><div id="bar"></div></div><div id="status">Loading</div></div>
     </div>
     <div id="title" class="overlay">
       <h1 class="name">The Last Colossus</h1>
       <div class="sub">The First Awakening</div>
-      <div class="scene">I · The Forgotten Valley</div>
-      <div class="begin">Tap or click to begin</div>
+      <div class="menu">
+        <button class="mbtn" id="m-play">Temple Fight</button>
+        <button class="mbtn locked" id="m-valley" disabled>Explore the Valley <span>Coming soon</span></button>
+        <button class="mbtn" id="m-controls">Controls</button>
+        <button class="mbtn" id="m-gfx">Graphics: High</button>
+      </div>
+      <div class="ctl-panel" id="ctl">
+        <div class="desk-only"><b>WASD</b> Move · <b>Mouse</b> Look · <b>Shift</b> Run<br><b>Left click</b> Attack (hold: heavy slash)<br><b>Right click</b> Hold to block · tap to parry<br><b>Block + Attack</b> Guard-break kick · <b>Space</b> Roll</div>
+        <div class="touch-only"><b>Left thumb</b> Move · <b>Right side</b> Look · <b>RUN</b> Run<br><b>ATTACK</b> tap to cut · hold for heavy slash<br><b>BLOCK</b> hold to block · tap to parry<br><b>BLOCK + ATTACK</b> Kick · <b>DODGE</b> Roll</div>
+      </div>
     </div>
     <div id="hint" class="overlay">
       <div class="touch-only"><b>Left thumb</b> Move<br /><b>Right side</b> Drag to look<br /><b>RUN</b> Toggle run</div>

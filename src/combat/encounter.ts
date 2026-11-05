@@ -60,6 +60,7 @@ export class TempleEncounter {
     this.hud.innerHTML = `<div class="pbar"><div class="lbl">Health</div><div class="track"><div class="fill"></div></div></div>
       <div class="cap"></div>
       <div class="boss"><div class="lbl">The Temple Warden</div><div class="track"><div class="fill red"></div></div><div class="track meter"><div class="fill meter" style="width:0"></div></div></div>`;
+    this.hud.style.display = 'none'; // shown when the fight starts (not behind the menu)
     document.body.appendChild(this.hud);
     this.pbar = this.hud.querySelector('.pbar .fill')!; this.cap = this.hud.querySelector('.cap')!;
     this.boss = this.hud.querySelector('.boss')!; this.bossFill = this.boss.querySelector('.fill.red')!; this.meterFill = this.boss.querySelector('.fill.meter')!;
@@ -163,6 +164,7 @@ export class TempleEncounter {
   }
 
   update(dt: number) {
+    if (this.hud.style.display === 'none') { this.hud.style.display = ''; this.capUntil = this.t + 4.5; this.cap.classList.add('show'); }
     this.t += dt;
     if (this.t > this.capUntil) this.cap.classList.remove('show');
     const allDown = (bs: EnemyBrain[]) => bs.length > 0 && bs.every((b) => b.dead);
