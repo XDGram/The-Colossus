@@ -12,7 +12,7 @@ import { HEALTH } from './tables';
  * HUD (player health, damaged enemies' health, the Warden's health and stagger meter), captions, and the
  * defeat (retry) and victory screens. Combat rules are the existing ones.
  */
-type Phase = 'intro' | 'wave1' | 'wave2' | 'warden' | 'victory' | 'defeat';
+type Phase = 'intro' | 'wave1' | 'wave2' | 'wave3' | 'warden' | 'victory' | 'defeat';
 
 const CSS = `
 #hud { position: fixed; inset: 0; pointer-events: none; font-family: Inter, system-ui, sans-serif; color: #ece6d8; z-index: 5; }
@@ -88,14 +88,32 @@ export class TempleEncounter {
     this.system.drop(w); // not a target during the confrontation
     this.caption('THE TEMPLE WARDEN', '“This temple is ours now. You should not have returned.”', 4.5);
   }
-  private spawnWave(kinds: ('runner' | 'breaker')[]) {
-    this.wave = kinds.map((k, i) => { const p = this.gateSpot((i - (kinds.length - 1) / 2) * 2.2, -(i % 2) * 1.2); return this.arena.spawn(k, p, this.faceHome(p)); });
+  /** Spawn points: the main gate, and the covered corridors on both sides of the courtyard (enemies come out of the buildings). */
+  private spots = {
+    gate: (i: number) => this.gateSpot((i % 3 - 1) * 2.2, -(i % 2) * 1.2),
+    left: (i: number) => new THREE.Vector3(-33, 0, i % 2 ? 12 : 28),
+    right: (i: number) => new THREE.Vector3(33, 0, i % 2 ? 12 : 28),
+  };
+  private queue: { kind: 'runner' | 'breaker'; at: 'gate' | 'left' | 'right' }[] = [];
+  private nextSpawn = 0;
+  private spawned = 0;
+  private spawnWave(list: { kind: 'runner' | 'breaker'; at: 'gate' | 'left' | 'right' }[]) {
+    this.wave = []; this.queue = [...list]; this.nextSpawn = this.t; this.spawned = 0;
   }
-  private startWave(n: 1 | 2) {
-    this.phase = n === 1 ? 'wave1' : 'wave2';
-    // Mixed waves so both enemy types appear from the start (the two-attacker limit still applies).
-    this.spawnWave(n === 1 ? ['runner', 'breaker', 'runner'] : ['runner', 'runner', 'breaker', 'runner']);
-    this.caption('', n === 1 ? 'Ash Runners and an Iron Breaker storm the gate.' : 'More invaders pour through the gate.', 2.5);
+  /** Enemies arrive one at a time (every 1.2 s), so the assault streams in. */
+  private trickle() {
+    if (!this.queue.length || this.t < this.nextSpawn) return;
+    const q = this.queue.shift()!; this.nextSpawn = this.t + 1.2;
+    const p = this.spots[q.at](this.spawned++);
+    this.wave.push(this.arena.spawn(q.kind, p, this.faceHome(p)));
+  }
+  private startWave(n: 1 | 2 | 3) {
+    this.phase = n === 1 ? 'wave1' : n === 2 ? 'wave2' : 'wave3';
+    const R = (at: 'gate' | 'left' | 'right') => ({ kind: 'runner' as const, at }), B = { kind: 'breaker' as const, at: 'gate' as const };
+    this.spawnWave(n === 1 ? [R('gate'), B, R('left'), R('right'), R('gate')]
+      : n === 2 ? [R('left'), R('right'), B, R('gate'), R('left'), R('right')]
+      : [B, R('left'), R('right'), R('gate'), B, R('left')]);
+    this.caption('', n === 1 ? 'Invaders storm the temple.' : n === 2 ? 'More pour out of the halls.' : 'The Warden sends his last soldiers.', 2.5);
   }
   private startWarden() {
     this.phase = 'warden';
@@ -144,8 +162,14 @@ export class TempleEncounter {
           this.startWave(1);
         }
         break;
-      case 'wave1': if (allDown(this.wave)) { if (this.endAt < 0) this.endAt = this.t; if (this.t - this.endAt > 2) { this.endAt = -1; this.startWave(2); } } break;
-      case 'wave2': if (allDown(this.wave)) { if (this.endAt < 0) this.endAt = this.t; if (this.t - this.endAt > 2.5) { this.endAt = -1; this.startWarden(); } } break;
+      case 'wave1': case 'wave2': case 'wave3': {
+        this.trickle();
+        if (!this.queue.length && allDown(this.wave)) {
+          if (this.endAt < 0) this.endAt = this.t;
+          if (this.t - this.endAt > 2) { this.endAt = -1; if (this.phase === 'wave1') this.startWave(2); else if (this.phase === 'wave2') this.startWave(3); else this.startWarden(); }
+        }
+        break;
+      }
       case 'warden': if (this.warden!.dead) { if (this.endAt < 0) this.endAt = this.t; if (this.t - this.endAt > 2.5) { this.phase = 'victory'; this.showEnd(true); } } break;
     }
     if (this.combat.state === 'dead' && this.phase !== 'defeat' && this.phase !== 'victory') { this.phase = 'defeat'; this.endAt = this.t; }
