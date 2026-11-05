@@ -24,7 +24,9 @@ import { PLAY, COLOSSUS_POS, SITES, terrainHeight } from './world/heightfield';
 
 type Quality = 'high' | 'low';
 const params = new URLSearchParams(location.search);
-const quality: Quality = (params.get('quality') as Quality) || (localStorage.getItem('tlc-quality') as Quality) || 'high';
+const isTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
+// Phones default to Low graphics (playable frame rate); the menu toggle overrides it.
+const quality: Quality = (params.get('quality') as Quality) || (localStorage.getItem('tlc-quality') as Quality) || (isTouch ? 'low' : 'high');
 const debug = params.has('debug');
 // The temple compound is in development; the valley stays the default until it is approved.
 // The temple fight is the game; the valley (exploration) stays reachable with ?scene=valley.
@@ -149,6 +151,24 @@ async function main() {
     scene.environmentIntensity = 0.62;
     renderer.toneMappingExposure = 1.0;
     const temple = buildTemple(colliders, quality);
+    // The main gate is sealed: heavy closed doors across the passage (the fight is inside the walls).
+    {
+      const cv = document.createElement('canvas'); cv.width = 256; cv.height = 512; const c2 = cv.getContext('2d')!;
+      c2.fillStyle = '#3a2618'; c2.fillRect(0, 0, 256, 512);
+      for (let x = 0; x < 256; x += 32) { c2.fillStyle = x % 64 ? '#40291a' : '#342215'; c2.fillRect(x, 0, 30, 512); c2.fillStyle = 'rgba(0,0,0,0.5)'; c2.fillRect(x + 30, 0, 2, 512); }
+      c2.fillStyle = '#1c1714'; for (const y of [70, 250, 430]) c2.fillRect(0, y, 256, 26);
+      c2.fillStyle = '#6a5a44'; for (const y of [70, 250, 430]) for (let x = 14; x < 256; x += 40) { c2.beginPath(); c2.arc(x, y + 13, 5, 0, Math.PI * 2); c2.fill(); }
+      const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
+      const mat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.85 });
+      const gz = 47.62, gy = templeHeight(0, gz);
+      for (const sx of [-1, 1]) {
+        const leaf = new THREE.Mesh(new THREE.BoxGeometry(2.76, 5.0, 0.16), mat);
+        leaf.position.set(sx * 1.38, gy + 2.5 + 0.3, gz); leaf.castShadow = leaf.receiveShadow = true; scene.add(leaf);
+      }
+      const bar = new THREE.Mesh(new THREE.BoxGeometry(5.8, 0.28, 0.24), new THREE.MeshStandardMaterial({ color: 0x1c1410, roughness: 0.7 }));
+      bar.position.set(0, gy + 2.4, gz - 0.16); bar.castShadow = true; scene.add(bar);
+      colliders.addBox(0, gz, 5.6, 0.5, 0, gy - 1, gy + 6);
+    }
     fog.near = FOG.density * 0.45; // crisper, brighter air than the valley
     scene.add(temple.group);
     const impostor = new TreeImpostor(renderer, assets.models.tree_hero, sun, atmo.envMap);
@@ -382,7 +402,16 @@ async function main() {
   const post = new Post(renderer, scene, camera, quality, atmo.sunDir);
   if (sceneName === 'temple') {
     post.rays.uniforms.uIntensity.value = 0.5;
-    if (post.bloom) { post.bloom.strength = 0.22; post.bloom.threshold = 0.95; }
+    if (post.bloom) { post.bloom.strength = 0.36; post.bloom.threshold = 0.82; }
+    // Ghost of Tsushima-style golden hour: strong shafts, rich warm highlights, deeper shadows, saturated golds and reds.
+    post.rays.uniforms.uIntensity.value = 0.95;
+    const grade = (post as unknown as { grade?: { uniforms: Record<string, { value: unknown }> } }).grade;
+    if (grade) {
+      (grade.uniforms.uWarm.value as THREE.Color).setRGB(1.14, 1.0, 0.8);
+      (grade.uniforms.uCool.value as THREE.Color).setRGB(0.82, 0.9, 1.08);
+      grade.uniforms.uSaturation.value = 1.28; grade.uniforms.uVignette.value = 0.42;
+    }
+    sun.color.setRGB(1.0, 0.72, 0.42); sun.intensity = 5.6; renderer.toneMappingExposure = 1.06;
   }
   tpc.update(0.016, input, player.position, 0);
   updateWorld(0);

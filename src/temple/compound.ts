@@ -20,7 +20,7 @@ import { dressCompound, leafLitter, FallingLeaves, noren, leafCarpets } from './
 export const TEMPLE = {
   bounds: { minX: -63, maxX: 63, minZ: -90, maxZ: 74 },
   /** Just inside the main gate, on the courtyard paving, facing the gate (the invasion comes through it). */
-  start: { x: -1.1, z: 40 },
+  start: { x: 0, z: 44 },
   wall: { minX: -64, maxX: 64, minZ: -92, maxZ: 51 },
 };
 
@@ -564,7 +564,7 @@ export function buildTemple(colliders: Colliders, quality: 'high' | 'low'): Temp
   return {
     group, buildings, treeSpots, treeGold, falling,
     start: TEMPLE.start,
-    startYaw: Math.PI, // camera behind the pair, looking south at the gate
+    startYaw: 0, // just inside the sealed main gate, looking north into the courtyard toward the hall
     isInside: (p) => buildings.some((bl) => bl.contains(p.x, p.z, 0.2) && p.y > bl.spec.base - 0.6 && p.y < bl.spec.base + bl.spec.wallH),
     update(cam, player) {
       dressing.update(cam, player);

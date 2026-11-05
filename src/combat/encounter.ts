@@ -80,7 +80,7 @@ export class TempleEncounter {
   private startIntro() {
     this.phase = 'intro'; this.t = 0;
     // The Warden stands in the gateway, sword drawn, and speaks; then withdraws and sends his soldiers.
-    const p = this.gateSpot(1.8, -1.5) // just inside the gate, off the player line so he is in view;
+    const p = new THREE.Vector3(0, 0, 30); // in front of the main hall, facing the player at the gate
     this.warden = this.arena.spawn('warden', p, this.faceHome(p));
     this.wardenUpdate = this.warden.update.bind(this.warden);
     const w = this.warden;
@@ -91,9 +91,10 @@ export class TempleEncounter {
   }
   /** Spawn points: the main gate, and the covered corridors on both sides of the courtyard (enemies come out of the buildings). */
   private spots = {
-    gate: (i: number) => this.gateSpot((i % 3 - 1) * 2.2, -(i % 2) * 1.2),
-    left: (i: number) => new THREE.Vector3(-33, 0, [28, 12, 20, 4][i % 4]),
-    right: (i: number) => new THREE.Vector3(33, 0, [28, 12, 20, 4][i % 4]),
+    // 'gate' now means the main hall at the far end of the courtyard (the player came in through the sealed gate).
+    gate: (i: number) => new THREE.Vector3((i % 3 - 1) * 3, 0, -14 - (i % 2) * 2),
+    left: (i: number) => new THREE.Vector3(-30, 0, [24, 8, 16, 0][i % 4]),
+    right: (i: number) => new THREE.Vector3(30, 0, [24, 8, 16, 0][i % 4]),
   };
   private queue: { kind: 'runner' | 'breaker'; at: 'gate' | 'left' | 'right' }[] = [];
   private nextSpawn = 0;
@@ -113,14 +114,14 @@ export class TempleEncounter {
   }
   private startWave(n: 1 | 2 | 3) {
     this.phase = n === 1 ? 'wave1' : n === 2 ? 'wave2' : 'wave3';
-    const R = (at: 'gate' | 'left' | 'right') => ({ kind: 'runner' as const, at }), B = { kind: 'breaker' as const, at: 'gate' as const };
+    const R = (at: 'gate' | 'left' | 'right') => ({ kind: 'runner' as const, at }); let bs = 0; const B = () => ({ kind: 'breaker' as const, at: (bs++ % 2 ? 'left' : 'right') as 'left' | 'right' });
     // Large waves streaming from the gate and both side halls (two attack at a time; the rest circle).
     const mix = (runners: number, breakers: number) => {
       const out: { kind: 'runner' | 'breaker'; at: 'gate' | 'left' | 'right' }[] = [];
       const at = ['left', 'right', 'gate'] as const;
       const total = runners + breakers;
       for (let i = 0; i < total; i++) {
-        if (i % 4 === 1 && breakers > 0) { breakers--; out.push(B); } else if (runners > 0) { runners--; out.push(R(at[i % 3])); } else { breakers--; out.push(B); }
+        if (i % 4 === 1 && breakers > 0) { breakers--; out.push(B()); } else if (runners > 0) { runners--; out.push(R(at[i % 3])); } else { breakers--; out.push(B()); }
       }
       return out;
     };
@@ -130,7 +131,7 @@ export class TempleEncounter {
   private startWarden() {
     this.phase = 'warden';
     const w = this.warden!;
-    const p = this.gateSpot(0, 0);
+    const p = new THREE.Vector3(0, 0, 26); // he strides out from the hall
     w.revive(p, this.faceHome(p));
     w.update = this.wardenUpdate!;
     this.system.add(w);
@@ -147,7 +148,7 @@ export class TempleEncounter {
     this.player.teleport(this.home.x, this.home.z); this.player.setFacing(this.home.yaw);
     this.t = 0;
     // Warden spawns hidden (for the final phase), then wave 1 starts at once.
-    const p = this.gateSpot(0, 1.5);
+    const p = new THREE.Vector3(0, 0, 30);
     this.warden = this.arena.spawn('warden', p, this.faceHome(p));
     this.wardenUpdate = this.warden.update.bind(this.warden);
     const w = this.warden; w.update = () => {}; w.e.object.visible = false; w.e.object.position.y -= 50; this.system.drop(w);

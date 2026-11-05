@@ -153,7 +153,8 @@ export class EnemyBrain {
       case 'approach': {
         const stopAt = this.p.ring ? this.p.ring[1] : this.p.hold![1];
         if (dist <= stopAt) { this.set('hold'); break; }
-        want = toP.clone().normalize().multiplyScalar(this.e.cls === 'runner' && dist > stopAt + 2 ? this.p.jog : this.p.walk);
+        // Far away, Breakers march at double pace so they reach the fight from the halls.
+        want = toP.clone().normalize().multiplyScalar(this.e.cls === 'runner' && dist > stopAt + 2 ? this.p.jog : dist > 8 ? this.p.walk * 2 : this.p.walk);
         face = null;
         break;
       }
