@@ -89,12 +89,13 @@ export class TempleEncounter {
     this.caption('THE TEMPLE WARDEN', '“This temple is ours now. You should not have returned.”', 4.5);
   }
   private spawnWave(kinds: ('runner' | 'breaker')[]) {
-    this.wave = kinds.map((k, i) => { const p = this.gateSpot((i - (kinds.length - 1) / 2) * 2.4, 0); return this.arena.spawn(k, p, this.faceHome(p)); });
+    this.wave = kinds.map((k, i) => { const p = this.gateSpot((i - (kinds.length - 1) / 2) * 2.2, -(i % 2) * 1.2); return this.arena.spawn(k, p, this.faceHome(p)); });
   }
   private startWave(n: 1 | 2) {
     this.phase = n === 1 ? 'wave1' : 'wave2';
-    this.spawnWave(n === 1 ? ['runner', 'runner'] : ['breaker', 'runner']);
-    this.caption('', n === 1 ? 'Ash Runners pour through the gate.' : 'An Iron Breaker joins the assault.', 2.5);
+    // Mixed waves so both enemy types appear from the start (the two-attacker limit still applies).
+    this.spawnWave(n === 1 ? ['runner', 'breaker', 'runner'] : ['runner', 'runner', 'breaker', 'runner']);
+    this.caption('', n === 1 ? 'Ash Runners and an Iron Breaker storm the gate.' : 'More invaders pour through the gate.', 2.5);
   }
   private startWarden() {
     this.phase = 'warden';
