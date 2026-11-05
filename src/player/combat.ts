@@ -97,6 +97,8 @@ export class PlayerCombat {
 
     const atk = enabled ? input.consumeAttack() : 0, dodge = enabled ? input.consumeDodge() : 0, bpress = enabled ? input.consumeBlockPress() : 0;
     const held = enabled && input.blockHeld;
+    // Holding Attack for 0.2 s turns the opening cut (before it lands) into a heavy slash.
+    if (enabled && input.attackHeld) this.attackHold += dt; else { this.attackHold = 0; this.heavyDone = false; }
     if (atk || dodge || bpress || held) { this.lastAction = this.clock; if (!this.drawn) this.setDrawn(true); }
     if (this.drawn && this.clock - this.lastAction > 6 && this.state === 'free') this.setDrawn(false);
 
@@ -111,6 +113,9 @@ export class PlayerCombat {
     if (bpress && !this.blockWasHeld && this.parryLock <= 0 && this.canDefend()) { this.parryT = PARRY.window; this.log('parry window open'); }
     this.blockWasHeld = held;
 
+    if (this.attackHold >= 0.2 && !this.heavyDone && (this.state === 'free' || this.state === 'attack' && this.move === 'cut1' && this.t < 0.24)) {
+      this.heavyDone = true; this.startMove('heavy', aimDir);
+    }
     switch (this.state) {
       case 'free':
         if (dodge && this.rollCool <= 0) this.startMove('roll', aimDir);
@@ -124,6 +129,8 @@ export class PlayerCombat {
         if (held && this.lowering > 0) { this.lowering = 0; }
         // A riposte may follow a parry while the guard is still up or already lowering.
         if (atk && this.riposteT > 0) { this.startMove('riposte', aimDir); break; }
+        // Attack while blocking: guard-break kick.
+        if (atk && this.lowering <= 0) { this.startMove('kick', aimDir); break; }
         if (this.lowering > 0) { this.lowering -= dt; if (this.lowering <= 0) this.toFree(); }
         break;
       case 'attack': this.updateAttack(atk, dodge, held, aimDir); break;
@@ -327,6 +334,7 @@ export class PlayerCombat {
     this.holdAt = hold ?? -1;
   }
   private holdAt = -1;
+  private attackHold = 0; private heavyDone = false;
   private bladePrev: { hilt: THREE.Vector3; tip: THREE.Vector3 } | null = null;
   /** World position of the chest (line-of-sight origin for hits). */
   chest() { return this.player.position.clone().setY(this.player.position.y + 1.3); }

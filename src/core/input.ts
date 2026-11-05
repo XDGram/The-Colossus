@@ -11,6 +11,7 @@ export class Input {
   private sprintHeld = false;
   // Combat actions: presses are queued until consumed; block is also tracked as held.
   private attackQ = 0;
+  private attackDown = false;
   private dodgeQ = 0;
   private blockPressQ = 0;
   private blockMouse = false;
@@ -26,10 +27,10 @@ export class Input {
     addEventListener('blur', () => this.keys.clear());
     el.addEventListener('mousedown', (e) => {
       this.dragging = true;
-      if (e.button === 0) this.attackQ++;
+      if (e.button === 0) { this.attackQ++; this.attackDown = true; }
       if (e.button === 2) { this.blockMouse = true; this.blockPressQ++; }
     });
-    addEventListener('mouseup', (e) => { this.dragging = false; if (e.button === 2) this.blockMouse = false; });
+    addEventListener('mouseup', (e) => { this.dragging = false; if (e.button === 2) this.blockMouse = false; if (e.button === 0) this.attackDown = false; });
     el.addEventListener('contextmenu', (e) => e.preventDefault());
     addEventListener('mousemove', (e) => {
       if (document.pointerLockElement === this.el || this.dragging) {
@@ -53,11 +54,11 @@ export class Input {
     const btn = (cls: string, label: string) => { const b = document.createElement('button'); b.className = `act ${cls}`; b.textContent = label; b.setAttribute('aria-label', label); ui.appendChild(b); return b; };
     const atk = btn('attack', 'ATTACK'), dodge = btn('dodge', 'DODGE'), block = btn('block', 'BLOCK');
     const press = (b: HTMLElement, fn: () => void) => b.addEventListener('touchstart', (e) => { fn(); b.classList.add('on'); e.preventDefault(); e.stopPropagation(); }, { passive: false });
-    press(atk, () => this.attackQ++);
+    press(atk, () => { this.attackQ++; this.attackDown = true; });
     press(dodge, () => this.dodgeQ++);
     press(block, () => { this.blockTouch = true; this.blockPressQ++; });
     for (const b of [atk, dodge, block]) {
-      const up = (e: TouchEvent) => { b.classList.remove('on'); if (b === block) this.blockTouch = false; e.preventDefault(); e.stopPropagation(); };
+      const up = (e: TouchEvent) => { b.classList.remove('on'); if (b === block) this.blockTouch = false; if (b === atk) this.attackDown = false; e.preventDefault(); e.stopPropagation(); };
       b.addEventListener('touchend', up, { passive: false }); b.addEventListener('touchcancel', up, { passive: false });
     }
     const R = 52;
@@ -121,6 +122,8 @@ export class Input {
   consumeDodge() { const n = this.dodgeQ; this.dodgeQ = 0; return n; }
   consumeBlockPress() { const n = this.blockPressQ; this.blockPressQ = 0; return n; }
   get blockHeld() { return this.blockMouse || this.blockTouch; }
+  /** Attack button/mouse currently held (hold = heavy attack). */
+  get attackHeld() { return this.attackDown; }
   /** Test hook: inject an action as if pressed. */
   inject(a: 'attack' | 'dodge' | 'blockDown' | 'blockUp') {
     if (a === 'attack') this.attackQ++; else if (a === 'dodge') this.dodgeQ++;

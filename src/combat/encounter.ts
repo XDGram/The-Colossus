@@ -103,6 +103,9 @@ export class TempleEncounter {
   /** Enemies arrive one at a time (every 1.2 s), so the assault streams in. */
   private trickle() {
     if (!this.queue.length || this.t < this.nextSpawn) return;
+    // Phones: at most 5 enemies on the field at once (the rest arrive as others fall) to keep the frame rate playable.
+    const touch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
+    if (touch && this.wave.filter((b) => !b.dead).length >= 5) return;
     const q = this.queue.shift()!; this.nextSpawn = this.t + 0.8;
     const p = this.spots[q.at](this.spawned++);
     this.wave.push(this.arena.spawn(q.kind, p, this.faceHome(p)));

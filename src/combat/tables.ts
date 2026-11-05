@@ -20,7 +20,7 @@ export interface PlayerMove {
   /** Root drive (m) over a time window, for moves that travel. */
   drive?: { dist: number; from: number; to: number };
 }
-export type PlayerMoveName = 'cut1' | 'cut2' | 'cut3' | 'lunge' | 'riposte' | 'roll';
+export type PlayerMoveName = 'cut1' | 'cut2' | 'cut3' | 'lunge' | 'riposte' | 'roll' | 'heavy' | 'kick';
 
 export const PLAYER_MOVES: Record<PlayerMoveName, PlayerMove> = {
   cut1: { clip: 'Sword_Regular_A', to: 0.43, active: [0.24, 0.3], chain: [0.33, 0.43], next: 'cut2',
@@ -32,6 +32,10 @@ export const PLAYER_MOVES: Record<PlayerMoveName, PlayerMove> = {
     drive: { dist: 2.0, from: 0.05, to: 0.38 } },
   // Sword_Regular_C at 1.15x: hit 0.54-0.63 s, free at 1.13 s (move time).
   riposte: { clip: 'Sword_Regular_C', to: 1.3, speed: 1.15, active: [0.54, 0.63], vulnerableUntil: 1.13, damage: 30, poise: 'break', meter: 30 },
+  // Heavy slash (hold Attack): the two-handed opening swing of Sword_Heavy_Combo (hit 0.50 s).
+  heavy: { clip: 'Sword_Heavy_Combo', to: 0.95, active: [0.43, 0.57], vulnerableUntil: 0.95, damage: 20, poise: 'break', meter: 20 },
+  // Guard-break kick (Attack while blocking): Melee_Hook (hit 0.27 s).
+  kick: { clip: 'Melee_Hook', to: 0.47, active: [0.22, 0.32], rec: { clip: 'Melee_Hook_Rec', length: 0.3 }, vulnerableUntil: 0.77, damage: 4, poise: 'break', meter: 25 },
   roll: { clip: 'Roll', to: 0.75, vulnerableUntil: 0.75, drive: { dist: 2.4, from: 0.02, to: 0.55 } },
 };
 
