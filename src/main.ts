@@ -17,7 +17,6 @@ import { SunBeams } from './temple/light';
 import { CardField, crossedCards, flowerCard, grassGenerator, flowerGenerator, bushGeometry, vineGeometry, Birds, setFoliageTime } from './world/foliage';
 import { ThirdPersonCamera, TEMPLE_RIG } from './player/camera';
 import { Mentor } from './player/mentorNpc';
-import { TIPS } from './ui/inkart';
 import type { PlayerCombat } from './player/combat';
 import { ground } from './world/ground';
 import { PLAY, COLOSSUS_POS, SITES, terrainHeight } from './world/heightfield';
@@ -41,21 +40,6 @@ const ui = {
   fps: document.getElementById('fps')!,
   quality: document.getElementById('quality')!,
 };
-// Loading screen: rotating painted key art (crossfade + slow zoom) and combat tips, until the menu appears.
-{
-  const slides = Array.from(document.querySelectorAll<HTMLElement>('#loader .ld-slide'));
-  let si = 0;
-  const th = document.getElementById('tiph'), tt = document.getElementById('tipt');
-  let k = Math.floor(Math.random() * TIPS.length);
-  const show = () => { if (!th || !tt) return; th.textContent = TIPS[k][0]; tt.textContent = TIPS[k][1]; k = (k + 1) % TIPS.length; };
-  show();
-  const timer = setInterval(() => {
-    if (ui.loader.classList.contains('done')) { clearInterval(timer); return; }
-    if (slides.length) { slides[si].classList.remove('on'); si = (si + 1) % slides.length; slides[si].classList.add('on'); }
-    if (tt) { tt.style.opacity = '0'; setTimeout(() => { show(); tt.style.opacity = '1'; }, 500); }
-  }, 5000);
-}
-
 async function main() {
   const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
   renderer.setPixelRatio(Math.min(devicePixelRatio, quality === 'high' ? 1.5 : 1));
@@ -439,6 +423,7 @@ async function main() {
 
   // ---- loop ----
   // Loading finished: the painted art stays behind the menu (home screen) until the fight starts.
+  ui.bar.style.width = '100%'; { const pct = document.getElementById('pct'); if (pct) pct.textContent = '100%'; }
   ui.loader.classList.add('ready');
   ui.title.classList.add('show');
   let started = false;
