@@ -373,6 +373,25 @@ if (['p2r', 'r2p', 'block', 'parry', 'poise', 'death', 'wall', 'moving', 'stage1
       }
       void dm;
     }
+    // Spin coverage: player at 16 angles around the Runner at 0.95 m and 1.2 m. Every position must be hit, once, and
+    // never before 0.45 s (docs/combat.md table A: spin cut hits at 0.45 s; 360° attack).
+    const sc = await E(() => {
+      const rows = [];
+      for (const dist of [0.95, 1.2]) for (let i = 0; i < 16; i++) {
+        const b = H.brain('runner'); H.setup(b, 1.0, 'front');
+        const ang = i * Math.PI / 8; H.placeEnemy(b, 0, 40, 0);
+        const px = Math.sin(ang) * dist, pz = 40 + Math.cos(ang) * dist;
+        H.placePlayer(px, pz, Math.atan2(-px, 40 - pz)); H.step(1); H.begin(); H.force(b, 'spin');
+        for (let f = 0; f < 90; f++) H.step(1);
+        const hs = H.sys().filter((x) => /^player /.test(x.what));
+        rows.push({ dist, deg: Math.round(ang * 180 / Math.PI), n: hs.length, t: hs[0] ? +hs[0].b[b.id].time.toFixed(3) : null });
+      }
+      return rows;
+    });
+    const missed = sc.filter((r) => r.n === 0), early = sc.filter((r) => r.t !== null && r.t < 0.45 - 1e-6), multi = sc.filter((r) => r.n > 1);
+    const ts = sc.filter((r) => r.t !== null).map((r) => r.t);
+    check('Spin hits all 16 directions at 0.95 m and 1.2 m (no blind sector)', missed.length === 0, missed.length ? `missed: ${missed.map((r) => `${r.deg}°@${r.dist}m`).join(', ')}` : `32/32 hit, ${Math.min(...ts)}–${Math.max(...ts)} s`);
+    check('Spin never lands before 0.45 s, and hits each target once', early.length === 0 && multi.length === 0, `earliest ${Math.min(...ts)} s; early ${early.length}, multiple ${multi.length}`);
     // Runner lunge connects thanks to the 1.8 m drive (documented in moves.ts): hits once from 2.6 m.
     const r = await S('enemyVs', 'runner', 'lunge', 2.6, 'idle', 0, false, false, 2);
     check('Runner lunge (1.8 m drive) connects from 2.6 m, exactly once', hitsOf(r).length === 1, `${hitsOf(r).length} hit(s)`);
@@ -774,6 +793,13 @@ if (['p2b', 'b2p', 'blockB', 'parryB', 'meter', 'knock', 'deathB'].some(want)) {
       let minZ = Infinity; for (let f = 0; f < 120; f++) { H.step(1); minZ = Math.min(minZ, b.effective().z); }
       return { pz, bz: b.effective().z, minZ, hits: H.sys().filter((e) => /^player /.test(e.what)).length };
     });
+    // Normal spacing is restored right after the charge connects: centre distance ≥ 0.91 m (0.38 + 0.48 + 0.05) within 2 frames.
+    const cs = await E(() => {
+      const b = H.brain('breaker'); H.setup(b, 4.0, 'front'); H.force(b, 'charge'); let f0 = -1; const d = [];
+      for (let f = 0; f < 120; f++) { H.step(1); if (f0 < 0 && H.sys().some((e) => /^player /.test(e.what))) f0 = f; if (f0 >= 0 && f - f0 <= 30) d.push(+H.dist(b).toFixed(3)); }
+      return { atHit: d[0], after2: d[2], min: Math.min(...d.slice(2)) };
+    });
+    check('After the charge connects, normal spacing (≥ 0.91 m) is back within 2 frames and holds', cs.after2 >= 0.909 && cs.min >= 0.909, JSON.stringify(cs));
     // Breaker comes from z = 40 toward the player at z = 44; he must not pass through (stays below the player's z).
     check('Charge stops on contact (does not pass through the player)', ch.hits === 1 && ch.bz < ch.pz, JSON.stringify(ch));
   }

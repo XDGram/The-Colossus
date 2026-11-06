@@ -1,16 +1,22 @@
 # Stage 2C combat test results
 
-**Result: 152 / 165 checks passed, 13 failed.** The 13 failures come from **5 implementation issues** (section 2).
-No gameplay code was changed and no expected value was adjusted. Per the instructions, every failure is recorded here
-and nothing has been fixed.
+**Current result: 168 / 168 checks pass** (after fixes F1–F5).
+
+| Run | Result |
+|---|---|
+| First run (original implementation) | 152 / 165. 13 failures from 5 implementation issues (section 2) |
+| After the approved fixes | 168 / 168. 165 original checks plus 3 added to verify the fixes |
+
+No expected value, damage value or documented specification was changed. `docs/combat.md` is unchanged apart from the
+two rulings resolved earlier on this branch. The Temple Warden's behaviour is unchanged.
 
 | | |
 |---|---|
 | Harness | `tools/combattest.mjs` (run: `npm run dev`, then `node tools/combattest.mjs`; `--only <group,…>` for a subset) |
-| Code under test | `feature/mentor-temple` @ `fcfd223`, gameplay unchanged (only `docs/` and `tools/` differ on this branch) |
+| Code under test | `claude/stage-2c-tests`: `feature/mentor-temple` @ `fcfd223` plus the fixes in section 2 |
 | Expected values | `docs/combat.md`, including the two rulings resolved on this branch (pommel blocked = 1; a parry press is not a guard against any unparryable attack) |
-| Environment | Headless Chromium (Playwright 1.63, SwiftShader), Node 22, three 0.170, Vite 5.4; `?quality=low` |
-| Repeatability | Two full runs gave the same pass/fail on all 165 checks. Controlled tests (fixed seed, 1/60 s steps) reproduce exactly. The two unmodified-AI runs (items 13 and 18) vary in detail between runs, e.g. 11 vs 20 attack starts in the 60 s fight, because the game renders a few real-time frames before the harness pauses it. |
+| Environment | Headless Chromium (Playwright 1.63, SwiftShader), Node 22, three 0.170, Vite 5.4; `?quality=low`. `npm run build` passes |
+| Repeatability | Two full runs of the original implementation gave the same pass/fail on all 165 checks. Controlled tests (fixed seed, 1/60 s steps) reproduce exactly. The two unmodified-AI runs (items 13 and 18) vary in detail between runs, e.g. 11 vs 20 attack starts in the 60 s fight, because the game renders a few real-time frames before the harness pauses it. |
 
 ## 1. How the harness works
 
@@ -41,115 +47,121 @@ and nothing has been fixed.
 - **Setup steps that are not gameplay changes:** some tests set health or meter values directly (e.g. a Runner at
   8 HP for a kill). The multi-enemy run tops the player's health up once per second so restarts don't cut it short.
 
-## 2. Failures (implementation does not match docs/combat.md)
+## 2. Failures found and fixes applied
 
-### F1. The Breaker's shoulder charge can never hit the player (7 checks)
+### F1. The Breaker's shoulder charge could never hit the player (7 checks). Fixed
 
-Failed checks:
-- Charge damage (20).
-- Charge hit time (0.05–0.65 s).
-- Charge reaction (knockdown).
-- Charge vs an active block (10 + guard break).
-- Charge guard-break stun.
-- Charge vs a parry press.
-- "Charge stops on contact".
+- **Cause:**
+  - `EnemyBrain.constrain` kept every enemy at least 0.38 + 0.48 + 0.05 = 0.91 m from the player.
+  - The charge's body test (`CHARGE_BODY.radius 0.5` against `BODY.player.radius 0.38`) needs the centres within 0.88 m.
+  - The charge always stopped 0.03 m short.
+- **Fix** (`src/combat/brain.ts`, `constrain`):
+  - While an Iron Breaker (`kind === 'breaker'`) is in his charge's body-hit window (0.05–0.65 s), the player-spacing
+    push is suspended. Spacing between enemies still applies.
+  - The existing stop-on-contact (`stopCharge`) halts him, and the normal spacing pushes him back on the next frame.
+  - The charge radius (0.5 m, in the doc) is unchanged. The Temple Warden keeps normal spacing.
+- **Verified:**
+  - 20 damage at 0.50 s, knockdown.
+  - Blocked: 10 plus guard break and a 0.8 s stun.
+  - Parry press: full 20 and knockdown.
+  - Centre distance 0.879 m at contact, back to 0.91 m within 2 frames and held.
+  - He never passes through the player.
 
-The charge plays and drives forward, but it stops 0.91 m from the player and never registers a hit (0 hits from 2.2 m,
-3.0 m and 4.0 m).
+### F2. A parry press counted as a guard against unparryable attacks (3 checks). Fixed
 
-**Cause:**
-- `EnemyBrain.constrain` (`src/combat/brain.ts`) keeps every enemy at least
-  `player radius + enemy radius + 0.05 = 0.38 + 0.48 + 0.05 = 0.91 m` from the player.
-- The charge's swept body test (`src/combat/system.ts`, `CHARGE_BODY.radius = 0.5`, against `BODY.player.radius = 0.38`)
-  needs the centres within `0.5 + 0.38 = 0.88 m`.
-- The 0.03 m gap means contact is impossible.
-- The synthetic Stage 2A charge test (no separation rule) still passes. The bug only appears when the two systems run
-  together.
+- **Cause:** `src/player/combat.ts`, `receiveHit`: `if (front && (this.guardUp || this.parryT > 0))`.
+- **Fix:** `if (front && this.guardUp)`. Only an already-active block is a guard. The parry check before it is unchanged.
+- **Verified** (parry press with no active block):
 
-### F2. A parry press counts as a guard against unparryable attacks (3 checks)
+  | Attack | Result |
+  |---|---|
+  | Spin | 10, light flinch |
+  | Smash | 28, knockdown |
+  | Charge | 20, knockdown |
+  | Stamp | 10, knockdown |
 
-Rule: a parry press from neutral is not an active guard. The Runner's spin should deal 10 with a light flinch, and the
-smash and stamp should deal full damage with a knockdown.
+  An active block still gives: spin 3, smash 14 / charge 10 / stamp 5 with a guard break. Timed parries of parryable
+  attacks are unchanged.
 
-Measured, with the parry press timed 0.08 s before contact and no active block:
+### F3. The Runner's spin cut landed 0.12 s early (1 check). Fixed
 
-| Attack | Measured | Expected |
-|---|---|---|
-| Spin | blocked, 3 damage | 10, light flinch |
-| Smash | guard break, 14 damage, stun | 28, knockdown |
-| Stamp | guard break, 5 damage, stun | 10, knockdown |
+- **Cause:** the hit window was 0.31–0.59 s, and the turn swept most of the circle before 0.45 s.
+- **Rejected first attempt:** narrowing the window to 0.45–0.59 s alone left a 70–90° blind sector behind-left at both
+  test distances (180°/202°–270° missed). It was reported and not used.
+- **Fix (Option A, approved):**
+  - `src/enemies/custom.ts` (`runnerSpin`): the existing spin layer plays on a remapped clock. The original lead-in
+    (0–0.12 s) now spans 0–0.40 s, and the original turn (0.12–0.62 s) is compressed into 0.40–0.62 s.
+  - The poses, crouch, blade positions and everything from 0.62 s on are unchanged; only their timing moves.
+  - `src/enemies/moves.ts` (`spin`): the hit window is now 0.45–0.62 s (`t 0.535, window 0.085`). Nothing can land
+    before 0.45 s, and the poise-interrupt point ("before the first hit") moves to 0.45 s. Recovery (`openFrom 0.62`)
+    is unchanged.
+- **Verified:**
+  - Player at 16 directions around the Runner at 0.95 m and 1.2 m: **32 / 32 hit**, one hit each, at 0.467–0.517 s.
+  - None before 0.45 s; 0.467 s is the first 1/60 s frame inside the window.
+  - Warning plus lead-in to the turn: 0.35 + 0.45 = 0.80 s, as in doc §5.
+  - Damage, block (3) and push-back (0.3 m) are unchanged.
 
-The charge is also affected in principle but can't be shown because of F1.
+### F4. A blocked hit pushed the player back 0.48 m instead of 0.3 m (1 check). Fixed
 
-**Cause:** `src/player/combat.ts:215`, `if (front && (this.guardUp || this.parryT > 0))`. An open parry window is
-treated as a guard. This was flagged before the run; the harness confirms it.
+- **Cause:** the 0.3 m push (2 m/s for 0.15 s) was correct, but the block state doesn't lock movement, so the push
+  velocity eased out and slid about 0.18 m further.
+- **Fix** (`src/player/combat.ts`, `driveVector`):
+  - When a push ends while blocking, only the leftover velocity along the push direction is cancelled.
+  - Input, sideways movement and every other movement system are untouched.
+  - Flinch, stun and attack pushes were already exact and are not affected.
+- **Verified:**
+  - Blocked push-back settles at 0.30 m.
+  - Flinch push-backs 0.30 m and 0.80 m are unchanged.
+  - Walking while blocking is still 50% speed.
 
-### F3. The Runner's spin cut lands 0.12 s before its documented hit time (1 check)
+### F5. The Breaker settled anywhere from 1.7 to 2.5 m (1 check, Stage 2B). Fixed
 
-- Doc (tables A and §5): hit at 0.45 s after a 0.35 s tell, so a 0.80 s reaction window.
-- Measured: contact at move time 0.33 s with the player in front, so a reaction window of about 0.68 s.
-- **Cause:** the move's active window is 0.45 ± 0.14 s (`src/enemies/moves.ts`, `spin`). The 360° blade connects as
-  soon as it sweeps past the player, which happens early in that window.
-
-### F4. A blocked hit pushes the player back 0.48 m, not 0.3 m (1 check)
-
-- The 0.3 m push itself is applied correctly: 2 m/s for 0.15 s.
-- In the block state, the player's movement velocity then eases out instead of stopping, adding about 0.18 m.
-- Settled total: 0.48 m.
-- In a flinch (movement locked) the same 0.3 m push stops exactly at 0.30 m.
-- **Cause:** `PlayerCombat` (`src/player/combat.ts`, `c.lockMove`) leaves movement unlocked while blocking, so
-  `Player.update` keeps the push velocity and decelerates it.
-
-### F5. The Breaker settles anywhere from 1.7 to 2.5 m, not 2.0–2.5 m (1 check, Stage 2B regression)
-
-- Starting at 1.8 m, he stays at 1.80 m. He only backs off below 1.7 m.
-- When he approaches from range, he correctly stops at 2.49 m (that check passes).
-- **Cause:** `EnemyBrain.holdLine` (`src/combat/brain.ts`) backs off only when `dist < hold[0] - 0.3`, a 0.3 m dead band
-  under the documented 2.0 m.
-- It showed up in practice: after a 60 s fight his median spacing was 1.71 m.
+- **Cause:** `EnemyBrain.holdLine` only backed off when `dist < hold[0] - 0.3` (1.7 m).
+- **Fix:** an Iron Breaker (`kind === 'breaker'`) backs off whenever he is closer than 2.0 m. The Temple Warden keeps
+  his existing allowance below his own band.
+- **Verified:**
+  - From a 1.8 m start he settles at 2.004 m.
+  - Approaching from range he holds at 2.504 m (100% of samples inside 1.95–2.55 m).
 
 ## 3. Observations (not failures)
 
 - **Guard raise is one frame late.** The guard comes up on the frame at 0.1167 s, not 0.100 s. Summing 1/60 s steps
-  gives 0.0999… at frame 6, so `blockT >= 0.1` is true one frame later. This is within the stated ±1-frame tolerance
-  and recorded as a pass.
+  gives 0.0999… at frame 6, so `blockT >= 0.1` is true one frame later. Within the stated ±1-frame tolerance.
 - **Hits land slightly before their nominal time.** Enemy hits land 0.01–0.07 s before the doc's impact times, at the
   start of each move's active window: slash 0.22 vs 0.27, finisher 0.60 vs 0.67, sweep 0.48/1.13/1.78 vs 0.50/1.17/1.83.
-  All are within ±0.10 s except the spin (F3).
+  All within ±0.10 s.
 - **Unused, wrong numbers in `src/enemies/moves.ts`.** The `damage` fields in the hit table disagree with the doc:
   flurry 7, sweep 14/14/16, charge 18. They are **not used**: damage comes from `src/combat/tables.ts`, which matches
-  the doc and is what the tests measured. These dead fields could mislead future work.
-- **An unaided player takes only 2 of the 3 sweep hits** (12 and 14). The 0.8 m push-back after hit 1 moves him outside
-  the shorter second arc (reach 1.8 m). The per-hit tests re-place the player after each hit and confirm all three
-  values (12/12/14).
-- **The finisher is unreachable in play.** It is defined in the move table but never chosen by the AI. That matches the
-  doc's §7 choice list, which doesn't include it.
-- **Breaker walking speed:** median 0.92 m/s within 8 m (passes). Individual frames reach 1.73 m/s, from separation
-  pushes and the double-pace approach beyond 8 m added after Stage 2B.
+  the doc and is what the tests measured. Left unchanged (outside the approved fixes).
+- **An unaided player takes only 2 of the 3 sweep hits.** The 0.8 m push-back after hit 1 moves him outside the
+  shorter second arc. The per-hit tests re-place the player and confirm all three values (12/12/14).
+- **The finisher is unreachable in play.** It is defined but never chosen by the AI, matching doc §7's choice list.
+- **The Temple Warden very likely has the same charge-spacing issue as F1.** He uses the Breaker's moves and spacing
+  code. He was deliberately left unchanged, pending the separate Warden review.
 
-## 4. Results by requirement
+## 4. Results by requirement (after fixes)
 
-| # | Requirement | Result |
-|---|---|---|
-| 1 | Player attacks → Runner | 13/13 |
-| 2 | Player attacks → Breaker | 8/8 |
-| 3 | Runner attacks → player (all 9 hits) | 27/28 (F3) |
-| 4 | Breaker attacks → player (all 6 hits) | 10/13 (F1) |
-| 5 | Block | 14/17 (F4, F1 ×2) |
-| 6 | Parry | 12/16 (F2 ×3, F1) |
-| 7 | Riposte and open / positional multipliers | Included in 1, 2 and the 2 multiplier checks: all pass |
-| 8 | Runner poise | 6/6 |
-| 9–10 | Breaker meter, knee-drop, immunity, decay | 7/7 |
-| 11 | Knockdowns | 2/3 (F1) |
-| 12 | Death (Runner, Breaker, player and restart) | 6/6 |
-| 13 | Multiple enemies (unmodified AI, 60 s) | 5/5 |
-| 14 | Wall obstruction | 3/3 |
-| 15 | Moving targets | 4/4 |
-| 16 | Stage 1 regression | 8/8 |
-| 17 | Stage 2A regression (existing `tools/hittest`, unchanged) | 20/20 |
-| 18 | Stage 2B regression | 5/6 (F5) |
+| # | Requirement | First run | After fixes |
+|---|---|---|---|
+| 1 | Player attacks → Runner | 13/13 | 13/13 |
+| 2 | Player attacks → Breaker | 8/8 | 8/8 |
+| 3 | Runner attacks → player (all 9 hits, plus spin coverage) | 27/28 | 30/30 |
+| 4 | Breaker attacks → player (all 6 hits) | 10/13 | 13/13 |
+| 5 | Block | 14/17 | 17/17 |
+| 6 | Parry | 12/16 | 16/16 |
+| 7 | Riposte and open / positional multipliers | pass | pass (within 1, 2 and the 2 multiplier checks) |
+| 8 | Runner poise | 6/6 | 6/6 |
+| 9–10 | Breaker meter, knee-drop, immunity, decay | 7/7 | 7/7 |
+| 11 | Knockdowns (plus spacing after a charge) | 2/3 | 4/4 |
+| 12 | Death (Runner, Breaker, player and restart) | 6/6 | 6/6 |
+| 13 | Multiple enemies (unmodified AI, 60 s) | 5/5 | 5/5 |
+| 14 | Wall obstruction | 3/3 | 3/3 |
+| 15 | Moving targets | 4/4 | 4/4 |
+| 16 | Stage 1 regression | 8/8 | 8/8 |
+| 17 | Stage 2A regression (existing `tools/hittest`, unchanged) | 20/20 | 20/20 |
+| 18 | Stage 2B regression | 5/6 | 6/6 |
 
-## 5. Full output (run 1)
+## 5. Full output (after fixes)
 
 ```
 PASS  [1 Player → Runner] Cut 1 deals 8  — hits 8, hp 40→32
@@ -195,12 +207,14 @@ PASS  [3 Runner → player] pommel: hit time(s) 0.27 s (±0.1)  — at 0.23
 PASS  [3 Runner → player] pommel: reaction flinch  — flinch
 PASS  [3 Runner → player] pommel: push-back 0.3 m  — 0.30 m
 PASS  [3 Runner → player] spin: 1 hit(s) of 10  — got player hit 10
-FAIL  [3 Runner → player] spin: hit time(s) 0.45 s (±0.1)  — at 0.33
+PASS  [3 Runner → player] spin: hit time(s) 0.45 s (±0.1)  — at 0.47
 PASS  [3 Runner → player] spin: reaction flinch  — flinch
 PASS  [3 Runner → player] spin: push-back 0.3 m  — 0.30 m
+PASS  [3 Runner → player] Spin hits all 16 directions at 0.95 m and 1.2 m (no blind sector)  — 32/32 hit, 0.467–0.517 s
+PASS  [3 Runner → player] Spin never lands before 0.45 s, and hits each target once  — earliest 0.467 s; early 0, multiple 0
 PASS  [3 Runner → player] Runner lunge (1.8 m drive) connects from 2.6 m, exactly once  — 1 hit(s)
 PASS  [5 Block] slash blocked: 2 damage  — player blocked 2
-FAIL  [5 Block] Blocked hit pushes back 0.3 m (settled distance)  — 0.48 m
+PASS  [5 Block] Blocked hit pushes back 0.3 m (settled distance)  — 0.30 m
 PASS  [5 Block] slash2 blocked: 2 damage  — player blocked 2
 PASS  [5 Block] flurry blocked: 2/2/2 damage  — player blocked 2, player blocked 2, player blocked 2
 PASS  [5 Block] finisher blocked: 3 damage  — player blocked 3
@@ -219,13 +233,13 @@ PASS  [6 Parry] A parry opens a 1.0 s riposte window  — 1.00 s
 PASS  [6 Parry] Press 0.10 s before the hit (inside 0.18 s): parried  — {"contact":0.2167,"res":["player parried"]}
 PASS  [6 Parry] Press 0.25 s before the hit (outside 0.18 s): not parried  — {"contact":0.2167,"res":["player hit"]}
 PASS  [6 Parry] Missed parry: 0.5 s lockout (press 0.2 s after the miss does not open a window; 0.6 s after does)  — {"opens":[1,1,2],"missed":true}
-FAIL  [6 Parry] Spin vs a parry press from neutral: full 10 damage and a light flinch  — player blocked 3 (block)
+PASS  [6 Parry] Spin vs a parry press from neutral: full 10 damage and a light flinch  — player hit 10 (flinch)
 PASS  [6 Parry] Spin vs an active block: 3 damage  — player blocked 3
 PASS  [12 Death] Runner at 0 HP dies (Death A or B)  — {"state":"dead","move":"deathB","log":["player:start cut1","sys:hit 8","sys:killed"]}
 PASS  [12 Death] Dead enemy holds no attack ticket
 PASS  [12 Death] Body stays 8 s, then sinks and is removed  — y 0.00 @0s, 0.00 @7.5s, -0.80 @9s, removed true
 PASS  [12 Death] Player at 0 HP dies  — player killed, player defeated, restart
-PASS  [12 Death] Restart after 3 s with full health on both sides  — restart after 3.02 s; player 100, runner 40
+PASS  [12 Death] Restart after 3 s with full health on both sides  — restart after 3.00 s; player 100, runner 40
 PASS  [14 Wall obstruction] Wall between them: the player's cut does not hit  — {"playerHits":0,"enemyHits":0,"blocked":true}
 PASS  [14 Wall obstruction] Wall between them: the Runner's slash 2 does not hit  — {"playerHits":0,"enemyHits":0,"blocked":true}
 PASS  [14 Wall obstruction] Same distance in the open: both hit  — {"playerHits":1,"enemyHits":1,"blocked":false}
@@ -256,9 +270,9 @@ PASS  [4 Breaker → player] sweep: push-back 0.8 m (measured 0.3 s after hit 1)
 PASS  [4 Breaker → player] smash: 1 hit(s) of 28  — player hit 28
 PASS  [4 Breaker → player] smash: hit time(s) 0.63 s  — at 0.62
 PASS  [4 Breaker → player] smash: reaction knockdown  — knockdown
-FAIL  [4 Breaker → player] charge: 1 hit(s) of 20
-FAIL  [4 Breaker → player] charge: hit time(s) 0.05–0.65 s  — at 
-FAIL  [4 Breaker → player] charge: reaction knockdown
+PASS  [4 Breaker → player] charge: 1 hit(s) of 20  — player hit 20
+PASS  [4 Breaker → player] charge: hit time(s) 0.05–0.65 s  — at 0.50
+PASS  [4 Breaker → player] charge: reaction knockdown  — knockdown
 PASS  [4 Breaker → player] stamp: 1 hit(s) of 10  — player hit 10
 PASS  [4 Breaker → player] stamp: hit time(s) 0.75–0.9 s  — at 0.80
 PASS  [4 Breaker → player] stamp: reaction knockdown  — knockdown
@@ -266,13 +280,13 @@ PASS  [4 Breaker → player] stamp: reaction knockdown  — knockdown
 PASS  [5 Block (Breaker)] sweep vs active block: 3/3/4 damage  — player blocked 3, player blocked 3, player blocked 4
 PASS  [5 Block (Breaker)] smash vs active block: 14 damage + guard break  — player guardBreak 14
 PASS  [5 Block (Breaker)] smash: guard break stuns 0.8 s  — 0.80 s
-FAIL  [5 Block (Breaker)] charge vs active block: 10 damage + guard break
-FAIL  [5 Block (Breaker)] charge: guard break stuns 0.8 s  — null s
+PASS  [5 Block (Breaker)] charge vs active block: 10 damage + guard break  — player guardBreak 10
+PASS  [5 Block (Breaker)] charge: guard break stuns 0.8 s  — 0.80 s
 PASS  [5 Block (Breaker)] stamp vs active block: 5 damage + guard break  — player guardBreak 5
 PASS  [5 Block (Breaker)] stamp: guard break stuns 0.8 s  — 0.80 s
-FAIL  [6 Parry (Breaker)] smash vs a parry press from neutral: full 28 damage and knockdown  — player guardBreak 14 (stun; parry press at move time 0.54)
-FAIL  [6 Parry (Breaker)] charge vs a parry press from neutral: full 20 damage and knockdown
-FAIL  [6 Parry (Breaker)] stamp vs a parry press from neutral: full 10 damage and knockdown  — player guardBreak 5 (stun; parry press at move time 0.72)
+PASS  [6 Parry (Breaker)] smash vs a parry press from neutral: full 28 damage and knockdown  — player hit 28 (knockdown; parry press at move time 0.54)
+PASS  [6 Parry (Breaker)] charge vs a parry press from neutral: full 20 damage and knockdown  — player hit 20 (knockdown; parry press at move time 0.42)
+PASS  [6 Parry (Breaker)] stamp vs a parry press from neutral: full 10 damage and knockdown  — player hit 10 (knockdown; parry press at move time 0.72)
 PASS  [6 Parry (Breaker)] Sweep hit 1 vs a timed parry: 0 damage, meter +35  — player parried 0; meter 35
 PASS  [9-10 Breaker meter and knee-drop] Meter fills by 27 per side combo (27 → 54 → 81); knee-drop on reaching 100 in the 4th combo  — after each combo 27 → 54 → 81 → 0 (reset to 0 at the knee-drop); gains: cut1 -> 6.0 | cut2 -> 12.0 | cut3 -> 27.0 | cut1 -> 33.0 | cut2 -> 39.0 | cut3 -> 54.0 | cut1 -> 60.0 | cut2 -> 66.0 | cut3 -> 81.0 | cut1 -> 87.0 | cut2 -> 93.0 | cut3 -> 108.0
 PASS  [9-10 Breaker meter and knee-drop] Knee-drop lasts 2.2 s  — 2.23 s
@@ -285,17 +299,18 @@ PASS  [7 Open and positional multipliers (Breaker)] Cut 1 on an open Breaker fro
 PASS  [7 Open and positional multipliers (Breaker)] Cut 1 on an open Breaker from behind: meter 6 × 2 × 1.5 = 18  — hit 12 cut1 (open x1.5) hp 108 | meter 18 cut1 open behind -> 18.0
 PASS  [11 Knockdowns] Knockdown lasts 2.0 s  — 2.02 s
 PASS  [11 Knockdowns] Invulnerable from 0.6 s into the knockdown  — from 0.60 s
-FAIL  [11 Knockdowns] Charge stops on contact (does not pass through the player)  — {"pz":44,"bz":43.09,"minZ":40,"hits":0}
+PASS  [11 Knockdowns] After the charge connects, normal spacing (≥ 0.91 m) is back within 2 frames and holds  — {"atHit":0.879,"after2":0.91,"min":0.91}
+PASS  [11 Knockdowns] Charge stops on contact (does not pass through the player)  — {"pz":44,"bz":43.09,"minZ":40,"hits":1}
 PASS  [12 Death] Breaker at 0 HP dies (Death A or B), ticket released  — {"killed":true,"state":"dead","move":"deathB","ticket":false}
 PASS  [13 Multiple enemies (AI, 60 s, seed 1)] Never more than 2 enemies attacking at once  — max 2
 PASS  [13 Multiple enemies (AI, 60 s, seed 1)] Never more than 1 Breaker attacking at once  — max 1
 PASS  [13 Multiple enemies (AI, 60 s, seed 1)] At least 0.6 s between attack starts  — 11 starts, min gap 0.60 s
 PASS  [13 Multiple enemies (AI, 60 s, seed 1)] No two enemy hits land on the player in the same frame  — 13 hits on the player, 0 same-frame pairs
 PASS  [13 Multiple enemies (AI, 60 s, seed 1)] The fight produced attacks (sanity)  — 11 starts, 13 hits
-PASS  [18 Stage 2B regression] Runners hold a 3–5 m ring  — median 4.23 m, 100% of 340 samples inside 3–5 m
-PASS  [18 Stage 2B regression] Breaker holds 2.0–2.5 m (±0.05 m)  — median 2.493 m, 100% of 50 samples inside 1.95–2.55 m
+PASS  [18 Stage 2B regression] Runners hold a 3–5 m ring  — median 4.62 m, 100% of 368 samples inside 3–5 m
+PASS  [18 Stage 2B regression] Breaker holds 2.0–2.5 m (±0.05 m)  — median 2.504 m, 100% of 21 samples inside 1.95–2.55 m
 PASS  [18 Stage 2B regression] Breaker walks at about 0.9 m/s within 8 m  — median 0.92 m/s, max 1.73 m/s
-FAIL  [18 Stage 2B regression] Breaker starting at 1.8 m settles inside 2.0–2.5 m  — settled at 1.800 m after 4 s
+PASS  [18 Stage 2B regression] Breaker starting at 1.8 m settles inside 2.0–2.5 m  — settled at 2.004 m after 4 s
 PASS  [18 Stage 2B regression] No attack starts while every warning is off-screen (camera turned away, 5 s)  — 0 starts
 PASS  [18 Stage 2B regression] A warning behind a wall is not visible; the same in the open is  — behind wall false, open true
 PASS  [17 Stage 2A regression] Repeated contact frames hit once  — 1 hit(s) over 31 frames of a slow swing
@@ -319,5 +334,5 @@ PASS  [17 Stage 2A regression] Stamp ring hits a grounded target at 1.8 m  — 1
 PASS  [17 Stage 2A regression] Stamp ring misses an airborne target  — 0 hits
 PASS  [17 Stage 2A regression] Stamp ring misses a target at 3.5 m  — 0 hits
 
-152/165 passed, 13 failed
+168/168 passed, 0 failed
 ```
