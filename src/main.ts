@@ -379,6 +379,35 @@ async function main() {
     combatSystem = new CombatSystem(hitWorld, player, combat, arena.brains);
     const home = player.position.clone(), homeYaw = player.facing;
     combatSystem.onRestart = () => { player.teleport(home.x, home.z); player.setFacing(homeYaw); arena!.reset(); };
+    // Enemies spawned later (the Warden's summon) join the combat loop; the encounter replaces this with its own.
+    arena.onSpawn = (b) => combatSystem!.add(b);
+  }
+  // Temple Warden boss services: pooled effects, spell hazards (through the combat loop), summons.
+  let vfx: import('./fx/vfx').Vfx | null = null;
+  if (arena && combat && hitWorld && combatSystem) {
+    const [{ Vfx }, { Spells }] = await Promise.all([import('./fx/vfx'), import('./boss/spells')]);
+    vfx = await Vfx.load(import.meta.env.BASE_URL, scene, quality);
+    const groundAt = (x: number, z: number) => Math.max(ground.height(x, z), colliders.floorAt(x, z, ground.height(x, z) + 0.6));
+    const { GameAudio } = await import('./audio/audio');
+    const audio = new GameAudio(camera); void audio.load(import.meta.env.BASE_URL);
+    const sound = (n: string, at?: THREE.Vector3) => audio.play(n as import('./audio/audio').SoundName, at);
+    const spells = new Spells(hitWorld, vfx, { height: groundAt, blocks: (x, y, z) => colliders.blocks(x, y, z), player, push: (from, d) => combat!.pushFrom(from, d), sound });
+    combatSystem.hazards = spells;
+    const ar = arena;
+    Object.assign(arena.bossCtx, {
+      spells, vfx, sound,
+      // Two Ash Runners come out to either side behind him (phase 2).
+      summon: (n: number) => {
+        const boss = ar.brains.find((b) => b.e.kind === 'warden' && !b.dead); if (!boss) return;
+        const bp = boss.effective(), toP = player.position.clone().sub(bp).setY(0).normalize(), side = new THREE.Vector3(toP.z, 0, -toP.x);
+        for (let i = 0; i < n; i++) {
+          const p = bp.clone().addScaledVector(toP, -3).addScaledVector(side, (i % 2 ? 1 : -1) * 3.5);
+          [p.x, p.z] = colliders.resolve(p.x, p.z, groundAt(p.x, p.z), 0.5);
+          const b = ar.spawn('runner', p, Math.atan2(player.position.x - p.x, player.position.z - p.z));
+          vfx!.puff(b.e.object.position, true);
+        }
+      },
+    });
   }
   // The temple fight (normal temple play): Warden confrontation, two waves, then the Warden.
   let encounter: import('./combat/encounter').TempleEncounter | null = null;
@@ -472,6 +501,7 @@ async function main() {
     enemyShowcase?.update(dt);
     arena?.update(dt, { position: player.position, facing: player.facing, radius: 0.38, attackKey: combat?.state === 'attack' ? `p${combat.attackInstance}` : null, mash: combat?.mashScore() ?? 0 });
     combatSystem?.update(dt);
+    vfx?.update(dt);
     if (started) encounter?.update(dt);
     if (debugCam) { camera.position.fromArray(debugCam[0]); camera.lookAt(...debugCam[1]); }
     else tpc.update(dt, input, player.position, Math.hypot(player.velocity.x, player.velocity.z));

@@ -10,6 +10,8 @@ export const DIRECTOR = { maxAttackers: 2, maxBreakers: 1, startGap: 0.6 };
 export class AttackDirector {
   private holders = new Map<string, EnemyKind>();
   private lastStart = -Infinity;
+  /** While set (the Warden boss's spells / teleport), only this enemy may start attacks. */
+  exclusive: string | null = null;
   /** Log of granted starts [time, id] (tests). */
   readonly starts: [number, string][] = [];
 
@@ -22,6 +24,7 @@ export class AttackDirector {
   /** Ask to start an attack (its tell) now. Grants and records the start if every rule allows it. */
   tryStart(id: string, kind: EnemyKind, now: number, tellAt: { x: number; y: number; z: number }[]) {
     if (this.holders.has(id)) return true;
+    if (this.exclusive && this.exclusive !== id) return false;
     if (this.holders.size >= DIRECTOR.maxAttackers) return false;
     if (kind === 'breaker' && [...this.holders.values()].filter((k) => k === 'breaker').length >= DIRECTOR.maxBreakers) return false;
     if (now - this.lastStart < DIRECTOR.startGap) return false;

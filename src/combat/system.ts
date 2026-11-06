@@ -3,7 +3,7 @@ import { HitWorld, BODY, WEAPON_RADIUS, type HitEvent } from './hits';
 import type { EnemyBrain } from './brain';
 import type { PlayerCombat, ActiveAttack } from '../player/combat';
 import type { Player } from '../player/player';
-import { ENEMY_HITS, HEALTH, OPEN_METER, meterGain, playerDamage, PLAYER_MOVES, type PlayerMoveName } from './tables';
+import { BOSS, ENEMY_HITS, HEALTH, OPEN_METER, meterGain, playerDamage, PLAYER_MOVES, type EnemyHitDef, type PlayerMoveName } from './tables';
 
 /**
  * Combat loop (Stage 2C): connects the shared hit detection to damage, health and reactions using the approved
@@ -22,11 +22,20 @@ export const RESTART_DELAY = 3;
 export interface Vitals { hp: number; poise: number; lastPoise: number; meter: number; lastMeter: number; immuneUntil: number }
 export interface CombatLogEntry { t: number; what: string; who: string; amount?: number; detail?: string }
 
-/** Enemy move → damage-table key for the n-th hit of that move. */
-function hitKey(kind: 'runner' | 'breaker', move: string, n: number) {
-  if (kind === 'breaker' && move === 'sweep') return `breaker.sweep${n + 1}`;
-  return `${kind}.${move}`;
+/** Enemy move → damage-table key for the n-th hit of that move (per-hit entries such as breaker.sweep1 first). */
+function hitKey(kind: string, move: string, n: number) {
+  const per = `${kind}.${move}${n + 1}`;
+  return ENEMY_HITS[per] ? per : `${kind}.${move}`;
 }
+/** Damage-table prefix: the Temple Warden has his own boss table; others use their class. */
+const tableOf = (b: EnemyBrain) => (b.e.kind === 'warden' ? 'warden' : b.e.cls);
+/** Posture / stagger meter size and knee-drop length (the Warden boss: docs/boss.md). */
+const meterMax = (b: EnemyBrain) => (b.e.kind === 'warden' ? BOSS.posture : METER.max);
+const kneeLen = (b: EnemyBrain) => (b.e.kind === 'warden' ? BOSS.kneeDrop : METER.staggerLen);
+
+/** A hit on the player from a spell hazard (src/boss/spells.ts), applied through the normal block/parry/dodge rules. */
+export interface HazardHit { key: string; table: string; from: THREE.Vector3; source: EnemyBrain | null }
+export interface HazardSource { update(dt: number): HazardHit[] }
 
 export class CombatSystem {
   readonly vitals = new Map<EnemyBrain, Vitals>();
@@ -38,16 +47,19 @@ export class CombatSystem {
 
   /** When false, a defeat waits for the caller (encounter retry) instead of restarting after 3 s. */
   autoRestart = true;
+  /** Spell hazards (fire, lightning) that can hit the player; updated every frame. */
+  hazards: HazardSource | null = null;
   constructor(readonly hits: HitWorld, private player: Player, private combat: PlayerCombat, private brains: EnemyBrain[]) {
     for (const b of brains) this.add(b);
   }
   /** Register an enemy (spawned later by an encounter). */
   add(b: EnemyBrain) {
     this.vitals.set(b, this.freshVitals(b));
+    (b as EnemyBrain & { bindSystem?: (s: CombatSystem) => void }).bindSystem?.(this);
     this.hits.addTarget({ id: b.id, capsule: () => ({ base: b.effective(), ...(b.e.kind === 'breaker' ? BODY.breaker : b.e.kind === 'warden' ? { ...BODY.breaker, radius: 0.42 } : BODY.runner) }), active: () => !b.dead && !b.removed });
   }
   drop(b: EnemyBrain) { this.vitals.delete(b); this.hits.removeTarget(b.id); }
-  freshVitals(b: EnemyBrain): Vitals { return { hp: HEALTH[b.e.cls], poise: 0, lastPoise: -99, meter: 0, lastMeter: -99, immuneUntil: -99 }; }
+  freshVitals(b: EnemyBrain): Vitals { return { hp: b.e.kind === 'warden' ? HEALTH.warden : HEALTH[b.e.cls], poise: 0, lastPoise: -99, meter: 0, lastMeter: -99, immuneUntil: -99 }; }
 
   update(dt: number) {
     this.time += dt;
@@ -64,6 +76,11 @@ export class CombatSystem {
       this.playerHits(a, e);
     // Enemy attacks → player.
     for (const b of this.brains) if (!b.dead && b.state === 'attack') this.enemyAttack(b);
+    // Spell hazards → player.
+    if (this.hazards) for (const h of this.hazards.update(dt)) {
+      const def = ENEMY_HITS[h.table];
+      if (def) this.applyToPlayer(h.source, def, h.table, h.from, h.key);
+    }
     // Defeat and restart.
     if (this.combat.state !== 'dead') this.deadAt = -1;
     if (this.combat.state === 'dead') {
@@ -118,8 +135,8 @@ export class CombatSystem {
   private addMeter(b: EnemyBrain, v: Vitals, gain: number, why: string) {
     v.meter += gain; v.lastMeter = this.time;
     this.note('meter', b.id, gain, `${why} -> ${v.meter.toFixed(1)}`);
-    if (v.meter >= METER.max) {
-      v.meter = 0; v.immuneUntil = this.time + METER.staggerLen + METER.immunity;
+    if (v.meter >= meterMax(b)) {
+      v.meter = 0; v.immuneUntil = this.time + kneeLen(b) + METER.immunity;
       b.react('stagger'); this.note('KNEE-DROP', b.id);
     }
   }
@@ -131,7 +148,7 @@ export class CombatSystem {
     const chest = e.chest();
     moves.hits.forEach((h, n) => {
       const key = `${b.id}#${e.moveInstance}#${n}`;
-      const def = ENEMY_HITS[hitKey(e.cls, e.move, n)];
+      const def = ENEMY_HITS[hitKey(tableOf(b), e.move, n)];
       if (!def) return;
       let evs: HitEvent[] = [];
       if (e.move === 'charge') {
@@ -144,7 +161,7 @@ export class CombatSystem {
       } else if (Math.abs(e.time - h.t) <= h.window) {
         for (const w of e.weapons()) evs.push(...this.hits.sweepWeapon(key, b.id, w, chest));
       }
-      for (const ev of evs) if (ev.target === 'player') this.enemyHitsPlayer(b, def, hitKey(e.cls, e.move, n), ev);
+      for (const ev of evs) if (ev.target === 'player') this.enemyHitsPlayer(b, def, hitKey(tableOf(b), e.move, n), ev);
     });
   }
   private enemyHitsPlayer(b: EnemyBrain, def: typeof ENEMY_HITS[string], name: string, ev: HitEvent) {
@@ -158,6 +175,12 @@ export class CombatSystem {
       else if (this.time >= v.immuneUntil) this.addMeter(b, v, METER.parry, 'sweep parry');
     }
     void ev;
+  }
+  /** A spell hazard hits the player: same block / parry / dodge rules as a weapon hit, from the hazard's position. */
+  private applyToPlayer(src: EnemyBrain | null, def: EnemyHitDef, name: string, from: THREE.Vector3, key: string) {
+    const hpBefore = this.combat.hp;
+    const out = this.combat.receiveHit({ damage: def.damage, blocked: def.blocked, parryable: def.parryable, weight: def.weight, from });
+    this.note(`player ${out}`, src?.id ?? 'hazard', hpBefore - this.combat.hp, `${name} -> player hp ${this.combat.hp} [${key}]`);
   }
 
   // ------------------------------------------------------------------ defeat

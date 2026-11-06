@@ -9,7 +9,9 @@ import { calibrateHand, wpos, wquat, type HandCal } from './ik';
 import { TwoHandGrip, type GripResult } from './twohand';
 import type { WeaponSample } from '../combat/hits';
 import { applyLayer, type LayerCtx } from './custom';
-import { BREAKER, RUNNER, type BreakerMove, type ClubMode, type MoveDef, type RunnerMove } from './moves';
+import { WARDEN } from '../boss/moves';
+import { applyBossLayer, BOSS_LAYERS } from '../boss/poses';
+import { BREAKER, RUNNER, type BreakerMove, type ClubMode, type LayerName, type MoveDef, type RunnerMove } from './moves';
 
 /** 'warden' = the Temple Warden: the older warrior's model and katana with the Iron Breaker's moveset and combat class. */
 export type EnemyKind = 'runner' | 'breaker' | 'warden';
@@ -95,7 +97,7 @@ export class Enemy<K extends EnemyKind = EnemyKind> {
     }
     this.model.traverse((o) => { if ((o as THREE.Mesh).isMesh) { o.castShadow = o.receiveShadow = true; (o as THREE.Mesh).frustumCulled = false; } });
     for (const c of anims) this.clips.set(c.name, c);
-    this.moves = this.cls === 'runner' ? RUNNER : BREAKER;
+    this.moves = kind === 'warden' ? WARDEN : this.cls === 'runner' ? RUNNER : BREAKER;
     this.mixer = new THREE.AnimationMixer(this.model);
     this.play('idle' as MoveName<K>, 0);
   }
@@ -176,7 +178,7 @@ export class Enemy<K extends EnemyKind = EnemyKind> {
 
     let out = {} as ReturnType<typeof applyLayer>;
     if (m.layer) {
-      out = applyLayer(m.layer, t, this.duration(this.move), ctx);
+      out = BOSS_LAYERS.has(m.layer) ? applyBossLayer(m.layer, t, this.duration(this.move), ctx) : applyLayer(m.layer as LayerName, t, this.duration(this.move), ctx);
       // Root drivers move the pivot (baked into `object` when the move ends).
       if (out.offset) this.pivot.position.copy(out.offset.clone().applyQuaternion(this.object.quaternion.clone().invert()));
       if (out.yaw !== undefined) this.pivot.rotation.y = out.yaw;

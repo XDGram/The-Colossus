@@ -4,7 +4,8 @@ import type { CombatSystem } from './system';
 import type { EnemyBrain } from './brain';
 import type { PlayerCombat } from '../player/combat';
 import type { Player } from '../player/player';
-import { HEALTH } from './tables';
+import { BOSS, HEALTH } from './tables';
+import type { WardenBrain } from '../boss/warden';
 
 /**
  * The temple fight (MVP): the Temple Warden confronts the player, then sends two waves
@@ -49,6 +50,7 @@ export class TempleEncounter {
   private capUntil = 0;
   private endAt = -1;
   private wardenUpdate: EnemyBrain['update'] | null = null;
+  private bossPhase = 1;
 
   constructor(private arena: CombatArena, private system: CombatSystem, private combat: PlayerCombat, private player: Player,
     private camera: THREE.PerspectiveCamera, private home: { x: number; z: number; yaw: number }, private gate: THREE.Vector3) {
@@ -141,7 +143,8 @@ export class TempleEncounter {
 
   /** Clean restart after a defeat: same courtyard start, wave 1 again. */
   retry() {
-    this.end.style.display = 'none'; this.endAt = -1;
+    this.end.style.display = 'none'; this.endAt = -1; this.bossPhase = 1;
+    this.arena.bossCtx.spells?.clear();
     this.arena.clear(); this.warden = null; this.wave = [];
     this.boss.style.display = 'none';
     this.combat.reset();
@@ -208,7 +211,14 @@ export class TempleEncounter {
     }
     if (this.phase === 'warden' && this.warden) {
       const v = this.system.vitals.get(this.warden);
-      if (v) { this.bossFill.style.width = `${(100 * v.hp) / HEALTH.breaker}%`; this.meterFill.style.width = `${Math.min(100, v.meter)}%`; }
+      if (v) { this.bossFill.style.width = `${(100 * v.hp) / HEALTH.warden}%`; this.meterFill.style.width = `${Math.min(100, (100 * v.meter) / BOSS.posture)}%`; }
+      // Phase changes (boss phases 2 and 3): a short caption, no cutscene.
+      const ph = (this.warden as WardenBrain).phase ?? 1;
+      if (ph !== this.bossPhase) {
+        this.bossPhase = ph;
+        if (ph === 2) this.caption('THE TEMPLE WARDEN', '“Burn, then.” His blade catches fire.', 3);
+        if (ph === 3) this.caption('THE TEMPLE WARDEN', '“The storm answers me.”', 3);
+      }
     }
   }
 }

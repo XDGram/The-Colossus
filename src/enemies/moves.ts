@@ -22,7 +22,8 @@ export interface MoveDef {
   speed?: number;
   /** Fixed duration for procedural moves (otherwise the segment lengths). */ duration?: number;
   /** Optional clip blended underneath at (1 - weight). */ under?: string; weight?: number;
-  layer?: LayerName;
+  /** Pose layer: src/enemies/custom.ts, or a Temple Warden boss layer (src/boss/poses.ts). */
+  layer?: LayerName | 'wardenLunge' | 'wardenStep' | 'wardenPalm' | 'wardenRaise';
   club?: ClubMode;
   hits?: Hit[];
   /** Move time from which the enemy is open to punishment, and the length of that recovery. */

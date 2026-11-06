@@ -4,6 +4,7 @@ import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.j
 import { Enemy } from '../enemies/enemy';
 import { AttackDirector } from './director';
 import { EnemyBrain, type PlayerView, type WorldQuery } from './brain';
+import { WardenBrain, type BossCtx } from '../boss/warden';
 import { mulberry32 } from '../core/noise';
 import { loadWardenAssets } from '../player/mentorNpc';
 import { segSegDistance, type Capsule } from './hits';
@@ -68,7 +69,7 @@ export class CombatArena {
       p.y = world.height(p.x, p.z);
       e.object.position.copy(p); e.object.rotation.y = facing + Math.PI;
       scene.add(e.object);
-      a.brains.push(new EnemyBrain(e, `${kind}${i}`, a.director, world, rnd));
+      a.brains.push(a.brainFor(e, `${kind}${i}`));
       a.spawns.push({ p: p.clone(), yaw: facing + Math.PI });
     });
     return a;
@@ -81,10 +82,17 @@ export class CombatArena {
     const q = p.clone(); q.y = this.world.height(q.x, q.z);
     e.object.position.copy(q); e.object.rotation.y = yaw; e.groundY = q.y;
     this.scene.add(e.object);
-    const b = new EnemyBrain(e, `${kind}#${++this.serial}`, this.director, this.world, this.rnd);
+    const b = this.brainFor(e, `${kind}#${++this.serial}`);
     this.brains.push(b); this.spawns.push({ p: q.clone(), yaw });
     this.onSpawn?.(b);
     return b;
+  }
+  /** Shared services for the Temple Warden boss (spells, effects, summons, sound); filled in by the game. */
+  readonly bossCtx: BossCtx = { spells: null, vfx: null, summon: null, sound: null };
+  /** The Warden gets the boss brain; everyone else the standard one. */
+  private brainFor(e: Enemy, id: string) {
+    if (e.kind !== 'warden') return new EnemyBrain(e, id, this.director, this.world, this.rnd);
+    const w = new WardenBrain(e, id, this.director, this.world, this.rnd); w.ctx = this.bossCtx; return w;
   }
   /** Remove every enemy (encounter restart). */
   clear() {

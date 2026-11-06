@@ -4,7 +4,10 @@
  */
 export type Weight = 'light' | 'medium' | 'heavy';
 
-export const HEALTH = { player: 100, runner: 40, breaker: 120 };
+export const HEALTH = { player: 100, runner: 40, breaker: 120, warden: 450 };
+
+/** Temple Warden boss (docs/boss.md): posture meter, knee-drop length and phase thresholds (fraction of health). */
+export const BOSS = { posture: 150, kneeDrop: 2.5, phase2: 0.65, phase3: 0.30 };
 export const OPEN_DAMAGE = 1.5;      // enemy in recovery or stagger
 export const OPEN_METER = 2;         // meter / poise gain on an open enemy
 export const BEHIND_METER = 1.5;     // Breaker meter gain from behind
@@ -66,6 +69,22 @@ export const ENEMY_HITS: Record<string, EnemyHitDef> = {
   'breaker.smash': { damage: 28, blocked: 14, parryable: false, weight: 'heavy' },
   'breaker.charge': { damage: 20, blocked: 10, parryable: false, weight: 'heavy' },
   'breaker.stamp': { damage: 10, blocked: 5, parryable: false, weight: 'heavy' },
+  // Temple Warden boss (docs/boss.md). Sword moves:
+  'warden.combo1': { damage: 10, blocked: 3, parryable: true, weight: 'light' },
+  'warden.combo2': { damage: 10, blocked: 3, parryable: true, weight: 'light' },
+  'warden.combo3': { damage: 14, blocked: 4, parryable: true, weight: 'medium' },
+  'warden.lunge': { damage: 14, blocked: 4, parryable: true, weight: 'medium' },
+  'warden.cleave': { damage: 22, blocked: 11, parryable: false, weight: 'heavy' },
+  'warden.stepslash': { damage: 12, blocked: 3, parryable: true, weight: 'medium' },
+  'warden.flamecut': { damage: 10, blocked: 3, parryable: true, weight: 'light' },
+  'warden.storm1': { damage: 12, blocked: 3, parryable: true, weight: 'medium' },
+  'warden.storm2': { damage: 24, blocked: 12, parryable: false, weight: 'heavy' },
+  'warden.tpstrike': { damage: 14, blocked: 4, parryable: true, weight: 'medium' },
+  // Spells (src/boss/spells.ts):
+  'warden.firewave': { damage: 14, blocked: 4, parryable: false, weight: 'medium' },
+  'warden.fireball': { damage: 10, blocked: 3, parryable: false, weight: 'medium' },
+  'warden.flame': { damage: 5, blocked: 5, parryable: false, weight: 'light' },
+  'warden.lightning': { damage: 22, blocked: 22, parryable: false, weight: 'heavy' },
 };
 
 /** Damage a player move deals to an enemy (open = in recovery or staggered). */

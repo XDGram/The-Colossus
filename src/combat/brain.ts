@@ -11,7 +11,9 @@ import { CHARGE_BODY } from './system';
  * States: approach → hold → (engage) → tell → attack → reposition, interrupted by dodge / parry / flinch /
  * stagger / dead.
  */
-export type BrainState = 'approach' | 'hold' | 'engage' | 'tell' | 'attack' | 'reposition' | 'dodge' | 'parry' | 'flinch' | 'stagger' | 'dead';
+export type BrainState = 'approach' | 'hold' | 'engage' | 'tell' | 'attack' | 'reposition' | 'dodge' | 'parry' | 'flinch' | 'stagger' | 'dead'
+  // Temple Warden boss only (src/boss/warden.ts).
+  | 'vanish' | 'transition';
 
 export interface PlayerView {
   position: THREE.Vector3;
@@ -54,21 +56,21 @@ export class EnemyBrain {
   stateT = 0;
   attack: string | null = null;
   readonly p: Personality;
-  private orbitSide = 1;
-  private orbitFlip = 0;
-  private radiusWant = 4;
-  private nextDecision = 0;
-  private dodgeCool = 0;
-  private farFor = 0;
-  private lastKey: string | null = null;
-  private stuckT = 0; private stuckRef = new THREE.Vector3();
-  private cue: THREE.Sprite;
-  private deadT = 0;
+  protected orbitSide = 1;
+  protected orbitFlip = 0;
+  protected radiusWant = 4;
+  protected nextDecision = 0;
+  protected dodgeCool = 0;
+  protected farFor = 0;
+  protected lastKey: string | null = null;
+  protected stuckT = 0; protected stuckRef = new THREE.Vector3();
+  protected cue: THREE.Sprite;
+  protected deadT = 0;
   /** Debug: last steering target (world). */
   readonly target = new THREE.Vector3();
   removed = false;
 
-  constructor(readonly e: Enemy, readonly id: string, private director: AttackDirector, private world: WorldQuery, private rnd: () => number) {
+  constructor(readonly e: Enemy, readonly id: string, protected director: AttackDirector, protected world: WorldQuery, protected rnd: () => number) {
     this.p = e.kind === 'runner' ? RUNNER : e.kind === 'warden' ? { ...BREAKER, radius: 0.42, hold: [1.2, 1.6] as [number, number], nativeWalk: 1.45 * 1.05 * 0.55, nativeJog: 1.45 * 1.05 * 0.55 } : BREAKER;
     this.orbitSide = rnd() < 0.5 ? -1 : 1;
     this.radiusWant = this.p.ring ? THREE.MathUtils.lerp(this.p.ring[0] + 0.4, this.p.ring[1] - 0.4, rnd()) : 2.25;
@@ -179,7 +181,7 @@ export class EnemyBrain {
       case 'tell': {
         face = this.e.cls === 'runner' ? facePlayer : null; // the Breaker commits to his line
         this.updateCue(now);
-        if (this.stateT >= TELL[this.attack!].tell) { this.cue.visible = false; this.e.frozen = false; this.set('attack'); }
+        if (this.stateT >= this.tellOf(this.attack!).tell) { this.cue.visible = false; this.e.frozen = false; this.set('attack'); }
         break;
       }
       case 'attack':
@@ -220,7 +222,7 @@ export class EnemyBrain {
   }
 
   // ------------------------------------------------------------------ decisions
-  private decide(me: THREE.Vector3, player: PlayerView, dist: number, now: number) {
+  protected decide(me: THREE.Vector3, player: PlayerView, dist: number, now: number) {
     this.nextDecision = THREE.MathUtils.lerp(this.p.decide[0], this.p.decide[1], this.rnd());
     if (this.e.cls === 'runner') {
       // Runners prefer to strike while the Breaker is committed (his attack in progress).
@@ -244,20 +246,20 @@ export class EnemyBrain {
       this.tryAttack(pick, me, now);
     }
   }
-  private tryAttack(name: string, _me: THREE.Vector3, now: number) {
+  protected tryAttack(name: string, _me: THREE.Vector3, now: number) {
     this.attack = name;
     if (this.director.tryStart(this.id, this.e.cls, now, this.tellPoints())) this.beginTell();
     else { this.attack = null; this.nextDecision = 0.4; }
   }
-  private beginTell() {
+  protected beginTell() {
     this.set('tell');
     this.e.play(this.attack as never, 0.12);
     this.e.frozen = true; this.e.time = 0; // hold the first frame of the attack as the warning pose
-    const unparryable = !ENEMY_HITS[TELL[this.attack!].hit].parryable;
+    const unparryable = this.tellOf(this.attack!).unparryable;
     (this.cue.material as THREE.SpriteMaterial).color.set(unparryable ? 0xff3a22 : 0xfff2d8);
     this.cue.visible = true;
   }
-  private startDodge(player?: PlayerView) {
+  protected startDodge(player?: PlayerView) {
     this.release(); this.set('dodge');
     const r = this.rnd();
     const mv = r < 0.4 ? 'stepL' : r < 0.8 ? 'stepR' : 'roll';
@@ -267,7 +269,7 @@ export class EnemyBrain {
 
   // ------------------------------------------------------------------ steering
   /** Runner: circle the player on a ring, drifting toward a flank; flip direction now and then. */
-  private orbit(me: THREE.Vector3, player: PlayerView, others: EnemyBrain[], dt: number) {
+  protected orbit(me: THREE.Vector3, player: PlayerView, others: EnemyBrain[], dt: number) {
     this.orbitFlip -= dt;
     if (this.orbitFlip <= 0) { this.orbitFlip = 2.5 + this.rnd() * 2.5; if (this.rnd() < 0.45) this.orbitSide *= -1; }
     const rel = me.clone().sub(player.position).setY(0);
@@ -291,7 +293,7 @@ export class EnemyBrain {
     return v.length() < 0.25 ? new THREE.Vector3() : v;
   }
   /** Breaker: hold 2-2.5 m in front of the player, guard up, adjusting slowly. */
-  private holdLine(me: THREE.Vector3, player: PlayerView, dist: number) {
+  protected holdLine(me: THREE.Vector3, player: PlayerView, dist: number) {
     const [a, b] = this.p.hold!;
     const toP = player.position.clone().sub(me).setY(0).normalize();
     if (dist > b) return toP.multiplyScalar(this.p.walk);
@@ -300,7 +302,7 @@ export class EnemyBrain {
     if (dist < (this.e.kind === 'breaker' ? a : a - 0.3)) return toP.multiplyScalar(-this.p.walk * 0.7);
     return new THREE.Vector3();
   }
-  private separation(me: THREE.Vector3, others: EnemyBrain[]) {
+  protected separation(me: THREE.Vector3, others: EnemyBrain[]) {
     const v = new THREE.Vector3();
     for (const o of others) {
       if (o === this || o.dead) continue;
@@ -310,9 +312,9 @@ export class EnemyBrain {
     }
     return v;
   }
-  private detour: { dir: THREE.Vector3; t: number } | null = null;
-  private blockedT = 0;
-  private move(v: THREE.Vector3, dt: number, player: PlayerView, idleMove: string) {
+  protected detour: { dir: THREE.Vector3; t: number } | null = null;
+  protected blockedT = 0;
+  protected move(v: THREE.Vector3, dt: number, player: PlayerView, idleMove: string) {
     // Blocked by an obstacle (wanting to move but not progressing): step around it for a moment.
     if (this.detour) { this.detour.t -= dt; if (this.detour.t <= 0) this.detour = null; else if (v.lengthSq() > 0.01) v = this.detour.dir.clone().multiplyScalar(Math.max(this.p.walk, v.length())).add(v.clone().multiplyScalar(0.35)); }
     const sp = Math.hypot(v.x, v.z);
@@ -334,12 +336,12 @@ export class EnemyBrain {
     if (this.e.move !== wantMove) this.e.play(wantMove as never, 0.2);
     this.e.rate = wantMove === 'walk' ? sp / this.p.nativeWalk : wantMove === 'jog' ? sp / this.p.nativeJog : 1;
   }
-  private turnTo(yaw: number, dt: number) {
+  protected turnTo(yaw: number, dt: number) {
     const d = wrap(yaw - this.e.object.rotation.y);
     this.e.object.rotation.y += THREE.MathUtils.clamp(d, -this.p.turn * dt, this.p.turn * dt);
   }
   /** Keep the body out of walls, the player and other enemies (including root-driven moves). */
-  private constrain(player: PlayerView, others: EnemyBrain[]) {
+  protected constrain(player: PlayerView, others: EnemyBrain[]) {
     const eff = this.effective();
     let [x, z] = this.world.resolve(eff.x, eff.z, eff.y, this.p.radius);
     const fix = (px: number, pz: number, r: number) => {
@@ -361,7 +363,7 @@ export class EnemyBrain {
     }
   }
   /** If trying to move but not getting anywhere for 1.5 s, flip the circling side and re-pick the radius. */
-  private unstick(dt: number, busy: boolean) {
+  protected unstick(dt: number, busy: boolean) {
     if (busy || this.state === 'tell') { this.stuckT = 0; this.stuckRef.copy(this.pos); return; }
     this.stuckT += dt;
     if (this.stuckT > 1.5) {
@@ -378,17 +380,19 @@ export class EnemyBrain {
   /** Points the player must be able to see for this enemy's warning to count: chest, head and the glint position. */
   tellPoints() {
     const chest = this.e.chest(), head = chest.clone().add(new THREE.Vector3(0, 0.45, 0));
-    const unparryable = this.attack ? !ENEMY_HITS[TELL[this.attack].hit].parryable : false;
+    const unparryable = this.attack ? this.tellOf(this.attack).unparryable : false;
     return [chest, head, unparryable ? head : this.e.weapons()[0].tip];
   }
-  private updateCue(now: number) {
+  protected updateCue(now: number) {
     const w = this.e.weapons()[0];
-    this.cue.position.copy(this.attack && !ENEMY_HITS[TELL[this.attack].hit].parryable ? this.e.chest().add(new THREE.Vector3(0, 0.45, 0)) : w.tip);
+    this.cue.position.copy(this.attack && this.tellOf(this.attack).unparryable ? this.e.chest().add(new THREE.Vector3(0, 0.45, 0)) : w.tip);
     const k = Math.min(1, this.stateT / 0.12);
     this.cue.scale.setScalar((0.22 + 0.25 * k) * (1 + 0.15 * Math.sin(now * 40)));
   }
-  private release() { this.director.release(this.id); this.cue.visible = false; this.e.frozen = false; }
-  private set(s: BrainState) { this.state = s; this.stateT = 0; }
+  protected release() { this.director.release(this.id); this.cue.visible = false; this.e.frozen = false; }
+  protected set(s: BrainState) { this.state = s; this.stateT = 0; }
+  /** Warning length and glint colour for an attack (docs/combat.md §5). The Warden boss overrides this. */
+  protected tellOf(name: string) { const t = TELL[name]; return { tell: t.tell, unparryable: !ENEMY_HITS[t.hit].parryable }; }
 }
 
 let glint: THREE.Texture | null = null;
