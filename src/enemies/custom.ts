@@ -48,6 +48,10 @@ export function applyLayer(name: LayerName, t: number, dur: number, ctx: LayerCt
     }
     case 'runnerSpin': {
       // Hop-turn through a full circle with both blades held out wide; hit at 0.45 s.
+      // Retimed (Stage 2C, F3): the same poses play on a remapped clock so the turn happens late. The original lead-in
+      // (0-0.12 s) now spans 0-0.40 s and the original turn (0.12-0.62 s) is compressed into 0.40-0.62 s, so the blades
+      // sweep the full circle inside the 0.45-0.62 s hit window. Unchanged from 0.62 s on.
+      t = t < 0.4 ? t * (0.12 / 0.4) : t < 0.62 ? 0.12 + (t - 0.4) * (0.5 / 0.22) : t;
       const k = ss(t, 0.12, 0.62), crouch = bump(t, 0.0, 0.12, 0.3) * 0.1 - bump(t, 0.2, 0.42, 0.7) * 0.05;
       dropPelvis(B, -0.06 - crouch, ctx.fwd, ctx.feet);
       const ext = bump(t, 0.1, 0.3, 0.8);

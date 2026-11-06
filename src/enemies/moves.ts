@@ -47,7 +47,8 @@ export const RUNNER: Record<RunnerMove, MoveDef> = {
   // Closing thrust: Sword_Dash travels only ~0.4 m, so the game drives 1.8 m forward into the 0.33 s hit.
   lunge: { segs: [{ clip: 'Sword_Dash' }], layer: 'runnerLunge', hits: [{ t: 0.33, window: 0.08, reach: 1.45, arc: 60, damage: 12 }], openFrom: 0.43, recovery: 1.2 },
   pommel: { segs: [{ clip: 'Melee_Hook' }, { clip: 'Melee_Hook_Rec' }], hits: [{ t: 0.27, window: 0.05, reach: 1.3, arc: 90, damage: 5 }], openFrom: 0.3, recovery: 0.6 },
-  spin: { segs: [{ clip: 'Sword_Idle' }], duration: 0.95, layer: 'runnerSpin', hits: [{ t: 0.45, window: 0.14, reach: 1.1, arc: 360, damage: 10 }], openFrom: 0.62, recovery: 0.33 },
+  // Spin: active 0.45-0.62 s (t 0.535 ± 0.085) while the retimed turn sweeps the full circle; nothing lands before 0.45 s.
+  spin: { segs: [{ clip: 'Sword_Idle' }], duration: 0.95, layer: 'runnerSpin', hits: [{ t: 0.535, window: 0.085, reach: 1.1, arc: 360, damage: 10 }], openFrom: 0.62, recovery: 0.33 },
   parry: { segs: [{ clip: 'Sword_Block' }] },
   roll: { segs: [{ clip: 'Roll' }] },
   hop: { segs: [{ clip: 'NinjaJump_Start', to: 0.6 }, { clip: 'NinjaJump_Land', from: 0.5 }] },

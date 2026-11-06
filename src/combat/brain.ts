@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { Enemy } from '../enemies/enemy';
 import type { AttackDirector } from './director';
 import { ENEMY_HITS } from './tables';
+import { CHARGE_BODY } from './system';
 
 /**
  * Enemy behaviour (docs/combat.md §7): movement, spacing, attack choice, tells and reactions, driving an Enemy.
@@ -294,7 +295,9 @@ export class EnemyBrain {
     const [a, b] = this.p.hold!;
     const toP = player.position.clone().sub(me).setY(0).normalize();
     if (dist > b) return toP.multiplyScalar(this.p.walk);
-    if (dist < a - 0.3) return toP.multiplyScalar(-this.p.walk * 0.7);
+    // The Iron Breaker holds 2.0-2.5 m (docs/combat.md §7): he backs off whenever he is closer than 2.0 m.
+    // The Temple Warden keeps his existing 0.3 m allowance below his band.
+    if (dist < (this.e.kind === 'breaker' ? a : a - 0.3)) return toP.multiplyScalar(-this.p.walk * 0.7);
     return new THREE.Vector3();
   }
   private separation(me: THREE.Vector3, others: EnemyBrain[]) {
@@ -343,7 +346,12 @@ export class EnemyBrain {
       const dx = x - px, dz = z - pz, l = Math.hypot(dx, dz);
       if (l < r && l > 1e-4) { x = px + dx / l * r; z = pz + dz / l * r; }
     };
-    fix(player.position.x, player.position.z, player.radius + this.p.radius + 0.05);
+    // An Iron Breaker's shoulder charge must be able to reach the player: during its body-hit window the player spacing
+    // is suspended (spacing between enemies still applies). The charge stops on contact (CombatSystem → stopCharge) and
+    // the normal spacing pushes him back out on the next frame. The Temple Warden keeps the normal spacing throughout.
+    const charging = this.e.kind === 'breaker' && this.state === 'attack' && this.attack === 'charge' && this.e.move === 'charge'
+      && this.e.time >= CHARGE_BODY.from && this.e.time <= CHARGE_BODY.to;
+    if (!charging) fix(player.position.x, player.position.z, player.radius + this.p.radius + 0.05);
     for (const o of others) if (o !== this && !o.dead) { const q = o.effective(); fix(q.x, q.z, o.p.radius + this.p.radius + 0.02); }
     const dx = x - eff.x, dz = z - eff.z;
     if (Math.abs(dx) + Math.abs(dz) > 1e-5) {

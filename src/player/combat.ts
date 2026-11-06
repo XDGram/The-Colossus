@@ -212,7 +212,9 @@ export class PlayerCombat {
     if (front && this.parryT > 0 && h.parryable) {
       this.parryT = 0; this.riposteT = PARRY.riposteWindow; this.log('PARRY'); return 'parried';
     }
-    if (front && (this.guardUp || this.parryT > 0)) {
+    // Only an already-active block is a guard: a parry press from neutral is not (docs/combat.md §4). An unparryable
+    // attack landing during a parry press without an active block hits normally.
+    if (front && this.guardUp) {
       if (h.weight === 'heavy') {
         this.parryT = 0; this.damage(h.blocked);
         if (this.hp <= 0) return this.die();
@@ -301,6 +303,14 @@ export class PlayerCombat {
   }
   private driveVector(): THREE.Vector3 | null {
     if (this.push && this.clock < this.push.until) return this.push.v.clone();
+    if (this.push && this.state === 'block') {
+      // A blocked hit's push-back ends at its full distance: cancel only the push's leftover velocity along the push
+      // direction (the block state doesn't lock movement, so it would otherwise ease out and slide further).
+      // Input and any other movement are left as they are.
+      const d = this.push.v.clone().setY(0).normalize(), v = this.player.velocity;
+      const along = v.x * d.x + v.z * d.z;
+      if (along > 0) { v.x -= d.x * along; v.z -= d.z * along; }
+    }
     this.push = null;
     const m = this.move ? PLAYER_MOVES[this.move] : null;
     if (m?.drive && (this.state === 'attack' || this.state === 'roll') && this.t >= m.drive.from && this.t <= m.drive.to)
