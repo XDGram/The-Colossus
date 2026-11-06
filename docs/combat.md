@@ -127,7 +127,7 @@ Single-point distance checks miss fast and moving attacks, so every active hit i
 | Active | From 0.10 s after the press, for as long as it's held | The first 0.18 s after the press |
 | Covers | 120° in front | 120° in front |
 | Light / medium hit | Takes the attack's blocked damage (table 2.2 / A), pushed back 0.3 m | No damage. Runner staggered 1.0 s; Breaker sweep: meter +35. Opens the riposte for 1.0 s |
-| Heavy hit | Guard breaks: blocked damage, stunned 0.8 s | Not parryable. A parry press is not a guard: unless the block is already active, the heavy hit lands normally (full damage, knockdown) |
+| Heavy hit | Guard breaks: blocked damage, stunned 0.8 s | Not parryable. A parry press is not a guard: unless the block is already active, the heavy hit lands normally (full damage, knockdown). The same applies to the Runner's unparryable spin (10, light flinch) |
 | Movement | Walk at 50%, no sprint or attack | — |
 | Miss / spam | — | A press with no hit has a 0.5 s parry lockout (you still block if you keep holding) |
 
@@ -240,7 +240,7 @@ Nothing here changes the timings, controls, camera or mechanics above.
 
 **Notes:**
 - **Block:** light and medium hits deal the **Blocked** value in the tables above (roughly 25%; the pommel strike deals 1). Heavy hits deal their Blocked value (50%) and break the guard: the player is stunned for 0.8 s.
-- **Parry vs heavy:** a parry press from neutral does not count as an active guard. A heavy (unparryable) attack that lands during a parry press, with no active block (held for at least 0.10 s), hits normally: full damage and knockdown. It only breaks the guard if the block is active.
+- **Parry vs unparryable attacks:** a parry press from neutral does not count as an active guard. Any unparryable attack (Runner spin, Breaker smash, charge, stamp) that lands during a parry press, with no active block (held for at least 0.10 s), hits normally: full damage and its normal reaction (spin: 10 and a light flinch; heavy: knockdown). With the block already active, the spin deals its Blocked value (3) and heavy attacks break the guard.
 - **Parry:** a successful parry takes 0 damage.
 - **Knockdown:** the player can't be hit from 0.6 s into the get-up.
 
