@@ -40,6 +40,15 @@ const ui = {
   fps: document.getElementById('fps')!,
   quality: document.getElementById('quality')!,
 };
+// Background music: starts with the loading screen and loops for the whole game. Browsers may block sound until the
+// first click / tap / key press, so it also starts on the first interaction. Restarted from the beginning on retry.
+const music = new Audio(`${import.meta.env.BASE_URL}assets/audio/music.m4a`);
+music.loop = true; music.volume = 0.45; music.preload = 'auto';
+const playMusic = () => { music.play().catch(() => {}); };
+const restartMusic = () => { music.currentTime = 0; playMusic(); };
+playMusic();
+for (const ev of ['pointerdown', 'keydown', 'touchstart']) addEventListener(ev, () => { if (music.paused) playMusic(); }, { passive: true });
+
 async function main() {
   const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
   renderer.setPixelRatio(Math.min(devicePixelRatio, quality === 'high' ? 1.5 : 1));
@@ -362,7 +371,7 @@ async function main() {
     const { CombatSystem } = await import('./combat/system');
     combatSystem = new CombatSystem(hitWorld, player, combat, arena.brains);
     const home = player.position.clone(), homeYaw = player.facing;
-    combatSystem.onRestart = () => { player.teleport(home.x, home.z); player.setFacing(homeYaw); arena!.reset(); };
+    combatSystem.onRestart = () => { player.teleport(home.x, home.z); player.setFacing(homeYaw); arena!.reset(); restartMusic(); };
     // Enemies spawned later (the Warden's summon) join the combat loop; the encounter replaces this with its own.
     arena.onSpawn = (b) => combatSystem!.add(b);
   }
@@ -399,6 +408,9 @@ async function main() {
     const { TempleEncounter } = await import('./combat/encounter');
     encounter = new TempleEncounter(arena, combatSystem, combat!, player, camera,
       { x: player.position.x, z: player.position.z, yaw: player.facing }, new THREE.Vector3(0, 0, 46.2));
+    // Retry after a defeat: the music starts again from the beginning.
+    const retry = encounter.retry.bind(encounter);
+    encounter.retry = () => { restartMusic(); retry(); };
   }
   // Development showcase of the invaders (temple only, ?enemies): no AI or combat.
   let enemyShowcase: import('./enemies/showcase').EnemyShowcase | null = null;
