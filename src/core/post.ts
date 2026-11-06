@@ -43,7 +43,8 @@ class GodRaysPass extends Pass {
             float sky = step(0.99999, texture2D(tDepth, uv).r);
             // Open sky contributes, strongly so around the sun's disk (independent of the sky texture).
             vec2 ds = (uv - uSun) * vec2(1.6, 1.0);
-            float glow = exp(-dot(ds, ds) * 60.0) * 8.0 + exp(-dot(ds, ds) * 5.0) * 0.7;
+            // Tight glow around the sun's disk only (a wide halo washed out the whole screen when facing the sun).
+            float glow = exp(-dot(ds, ds) * 90.0) * 4.0 + exp(-dot(ds, ds) * 18.0) * 0.18;
             vec3 s = (min(texture2D(tDiffuse, uv).rgb, vec3(3.0)) * 0.25 + glow) * sky;
             acc += s * decay;
             decay *= 0.965;
@@ -51,7 +52,7 @@ class GodRaysPass extends Pass {
           acc /= float(N);
           // Beams strongest near the sun, falling off across the frame.
           float fall = 1.0 - smoothstep(0.0, 1.1, distance(vUv * vec2(1.6, 1.0), uSun * vec2(1.6, 1.0)));
-          vec3 rays = acc * uColor * uIntensity * uVisible * (0.35 + 0.65 * fall);
+          vec3 rays = min(acc * uColor * uIntensity * uVisible * (0.35 + 0.65 * fall), vec3(0.3)); // beams light the scene, never cover it
           gl_FragColor = vec4(base.rgb + rays, base.a);
         }`,
       depthTest: false, depthWrite: false,

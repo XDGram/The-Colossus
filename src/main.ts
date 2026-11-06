@@ -426,7 +426,7 @@ async function main() {
   const updateWorld = (t: number) => worldUpdate(t, camera.position, player.position);
   const post = new Post(renderer, scene, camera, quality, atmo.sunDir);
   if (sceneName === 'temple') {
-    post.rays.uniforms.uIntensity.value = 0.5;
+    post.rays.uniforms.uIntensity.value = 0.3;
     if (post.bloom) { post.bloom.strength = 0.22; post.bloom.threshold = 0.95; }
   }
   tpc.update(0.016, input, player.position, 0);
