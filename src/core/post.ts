@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { Shatter } from '../fx/shatter';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
@@ -82,6 +81,8 @@ const GradeShader = {
     uAspect: { value: 1 },
     /** Reality glitch (0-1): slice tears, RGB split, block corruption, scanlines and flicker (the valley realm). */
     uGlitch: { value: 0 },
+    /** Realm transition: the world darkens as the wind rises (0-1). */
+    uDark: { value: 0 },
     uTime: { value: 0 },
   },
   vertexShader: /* glsl */ `
@@ -89,7 +90,7 @@ const GradeShader = {
     void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
   fragmentShader: /* glsl */ `
     uniform sampler2D tDiffuse; uniform vec3 uWarm; uniform vec3 uCool; uniform float uSaturation; uniform float uVignette; uniform float uAspect;
-    uniform float uGlitch; uniform float uTime;
+    uniform float uGlitch; uniform float uTime; uniform float uDark;
     varying vec2 vUv;
     float h1(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
     void main() {
@@ -125,6 +126,13 @@ const GradeShader = {
       col = mix(col, col * col * (3.0 - 2.0 * col), 0.22);
       vec2 d = (vUv - 0.5) * vec2(uAspect, 1.0);
       col *= 1.0 - uVignette * smoothstep(0.35, 1.05, length(d));
+      if (uDark > 0.001) {
+        // Storm darkness: dim, drained of colour, a little cold, the edges closing in.
+        float dl = dot(col, vec3(0.2126, 0.7152, 0.0722));
+        col = mix(col, vec3(dl) * vec3(0.85, 0.9, 1.05), 0.55 * uDark);
+        col *= 1.0 - 0.78 * uDark;
+        col *= 1.0 - 0.5 * uDark * smoothstep(0.25, 0.9, length(d));
+      }
       if (g > 0.001) {
         // Scanlines, flicker, and a blackout/whiteout pulse at full glitch.
         col *= 1.0 - 0.18 * g * (0.5 + 0.5 * sin(vUv.y * 900.0 + uTime * 60.0));
@@ -140,16 +148,14 @@ const GradeShader = {
 export class Post {
   readonly composer: EffectComposer;
   private grade: ShaderPass;
-  /** The realm transition's glass shards (drawn over the finished frame). */
-  readonly shatter = new Shatter();
-  private renderer: THREE.WebGLRenderer;
+
   bloom?: UnrealBloomPass;
   rays: GodRaysPass;
   private camera: THREE.Camera;
   private sunDir = new THREE.Vector3(0, 1, 0);
 
   constructor(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera, quality: 'high' | 'low', sunDir?: THREE.Vector3) {
-    this.camera = camera; this.renderer = renderer;
+    this.camera = camera;
     if (sunDir) this.sunDir.copy(sunDir);
     const size = renderer.getDrawingBufferSize(new THREE.Vector2());
     // Prefer HDR; fall back to 8-bit where float colour buffers aren't renderable (keeps the image intact).
@@ -173,7 +179,9 @@ export class Post {
     this.resize(innerWidth, innerHeight);
   }
 
-  /** Reality glitch amount (0-1), driven by the valley-realm transition. */
+  /** Storm darkness (0-1), driven by the valley-realm transition. */
+  set dark(v: number) { this.grade.uniforms.uDark.value = v; }
+  /** Reality glitch amount (0-1). */
   set glitch(v: number) { this.grade.uniforms.uGlitch.value = v; }
   get glitch() { return this.grade.uniforms.uGlitch.value as number; }
 
@@ -193,6 +201,5 @@ export class Post {
     this.rays.uniforms.uVisible.value = THREE.MathUtils.smoothstep(facing, 0.05, 0.45) * (1 - THREE.MathUtils.smoothstep(off, 1.2, 2.2));
     this.grade.uniforms.uTime.value = performance.now() / 1000;
     this.composer.render();
-    this.shatter.afterFrame(this.renderer);
   }
 }

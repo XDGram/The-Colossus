@@ -40,13 +40,13 @@ const ui = {
 // Background music: starts with the loading screen and loops for the whole game. Browsers may block sound until the
 // first click / tap / key press, so it also starts on the first interaction. Restarted from the beginning on retry.
 const music = new Audio(`${import.meta.env.BASE_URL}assets/audio/music.m4a`);
-music.loop = true; music.volume = 0.45; music.preload = 'auto';
+music.loop = true; music.volume = 0.55; music.preload = 'auto';
 const playMusic = () => { music.play().catch(() => {}); };
 // The Warden's realm has its own track (assets/audio/valley.m4a, mastered louder, so it plays a little lower). The two
 // crossfade; the temple track pauses in place and resumes where it left off.
 const valleyMusic = new Audio(`${import.meta.env.BASE_URL}assets/audio/valley.m4a`);
 valleyMusic.loop = true; valleyMusic.preload = 'none'; valleyMusic.volume = 0;
-const MUSIC_VOL = 0.45, VALLEY_VOL = 0.36;
+const MUSIC_VOL = 0.55, VALLEY_VOL = 0.44;
 let musicMode: 'temple' | 'valley' = 'temple', musicFade = 0;
 const setMusic = (valley: boolean) => {
   musicMode = valley ? 'valley' : 'temple'; musicFade = 0;
@@ -65,7 +65,7 @@ const fadeMusic = (dt: number) => {
 let duckUntil = 0;
 const duckMusic = () => {
   if (musicFade < 1.4) return;
-  const k = performance.now() < duckUntil ? 0.5 : 1;
+  const k = performance.now() < duckUntil ? 0.82 : 1;
   try { if (musicMode === 'valley') valleyMusic.volume = VALLEY_VOL * k; else music.volume = MUSIC_VOL * k; } catch { /* fixed volume (iOS) */ }
 };
 const restartMusic = () => { musicMode = 'temple'; musicFade = 9; valleyMusic.pause(); music.volume = MUSIC_VOL; music.currentTime = 0; playMusic(); };
@@ -422,7 +422,6 @@ async function main() {
   let encounter: import('./combat/encounter').TempleEncounter | null = null;
   let realm: import('./world/realm').WardenRealm | null = null;
   let glitchLevel = 0;
-  let postRef: import('./core/post').Post | null = null;
   if (encounterMode && arena && combatSystem) {
     const { TempleEncounter } = await import('./combat/encounter');
     encounter = new TempleEncounter(arena, combatSystem, combat!, player, camera,
@@ -446,9 +445,6 @@ async function main() {
         get ready() { return rm.ready; }, get active() { return rm.active; },
         enter: () => rm.enter(), exit: () => rm.exit(),
         glitch: (v) => { glitchLevel = v; }, music: setMusic,
-        capture: (impact, aspect) => postRef?.shatter.capture(impact, aspect),
-        crack: (v) => { if (postRef) postRef.shatter.crack = v; }, fall: (v) => { if (postRef) postRef.shatter.fall = v; },
-        hideShatter: () => postRef?.shatter.hide(),
       };
     }
   }
@@ -465,7 +461,6 @@ async function main() {
   await frame();
   const updateWorld = (t: number) => (realm?.active ? realm.update(t, camera.position, player.position) : worldUpdate(t, camera.position, player.position));
   const post = new Post(renderer, scene, camera, quality, atmo.sunDir);
-  postRef = post;
   if (sceneName === 'temple') {
     post.rays.uniforms.uIntensity.value = 0.3;
     if (post.bloom) { post.bloom.strength = 0.22; post.bloom.threshold = 0.95; }
@@ -593,6 +588,14 @@ async function main() {
       camera.position.copy(cine.cam.pos); camera.lookAt(cine.cam.look);
       tpc.yaw = player.facing + Math.PI; tpc.snap(player.position); cineFrom = [camera.position.clone(), camera.quaternion.clone()];
     } else {
+      // The storm transition: the camera turns to keep the Warden in focus, from the player's own view.
+      const focus = encounter?.focus;
+      if (focus) {
+        // Over the shoulder (a little to the side), so the player's own body doesn't hide him.
+        const want = Math.atan2(focus.x - player.position.x, focus.z - player.position.z) + Math.PI + 0.32;
+        tpc.yaw += Math.atan2(Math.sin(want - tpc.yaw), Math.cos(want - tpc.yaw)) * Math.min(1, dt * 4);
+        tpc.pitch += (-0.06 - tpc.pitch) * Math.min(1, dt * 3);
+      }
       tpc.update(dt, input, player.position, Math.hypot(player.velocity.x, player.velocity.z));
       // Hand-over from the last opening shot to the gameplay camera.
       if (cine && cine.blend >= 0 && cine.blend < 1 && cineFrom) {
@@ -615,7 +618,7 @@ async function main() {
     if (!paused) {
       // Hit-stop: ability impacts briefly slow the world.
       update(dt * (abilities?.timeScale(dt) ?? 1));
-      post.glitch = glitchLevel;
+      post.glitch = glitchLevel; post.dark = encounter?.dark ?? 0;
       renderer.info.reset();
       post.render();
     }
@@ -640,7 +643,7 @@ async function main() {
         for (let i = 0; i < n; i++) update(dt);
         if (!capture) return { url: '', ms: 0 };
         for (let i = 0; i < 40; i++) updateWorld(t);
-        post.glitch = glitchLevel;
+        post.glitch = glitchLevel; post.dark = encounter?.dark ?? 0;
         const t0 = performance.now();
         renderer.info.reset();
         post.render();

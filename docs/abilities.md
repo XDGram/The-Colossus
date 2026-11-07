@@ -180,7 +180,13 @@ download), Poly Pizza and Pixabay.
 
 Existing bindings are unchanged: Left Mouse = Attack, Right Mouse = Block/Parry, Space = Dodge, Shift = Sprint.
 
-### Mobile: one SPIRIT button with a "spirit stance" (recommended)
+### Mobile (revised): the abilities are part of the normal fighting style
+
+The SPIRIT stance is gone. Three ability buttons of their own sit in a row above the cluster, always available:
+**STEP** (Phantom Step), **RIFT** (Colossus Rift: hold to charge, release to fire) and **RUPTURE** (Gravity Rupture).
+Each shows its cooldown as a ring and glows when ready. ATTACK, BLOCK, DODGE and RUN are unchanged.
+
+### Mobile (original design, replaced): one SPIRIT button with a "spirit stance"
 
 The current right-hand cluster stays exactly as it is:
 - RUN in the corner.

@@ -102,21 +102,20 @@
       #touch .attack { right: calc(max(24px, env(safe-area-inset-right)) + 84px); bottom: max(36px, env(safe-area-inset-bottom)); width: 76px; height: 76px; }
       #touch .block { right: max(24px, env(safe-area-inset-right)); bottom: calc(max(40px, env(safe-area-inset-bottom)) + 84px); width: 60px; height: 60px; }
       #touch .dodge { right: calc(max(24px, env(safe-area-inset-right)) + 92px); bottom: calc(max(40px, env(safe-area-inset-bottom)) + 92px); width: 60px; height: 60px; }
-      /* SPIRIT (abilities): one button above the cluster; tapping it turns DODGE / ATTACK / BLOCK into the abilities. */
-      #touch .spirit { position: fixed; right: calc(max(24px, env(safe-area-inset-right)) + 50px); bottom: calc(max(40px, env(safe-area-inset-bottom)) + 170px); width: 56px; height: 56px; border-radius: 50%;
+      /* Abilities: three buttons of their own in a row above the cluster (always available, cooldown rings). */
+      #touch .skill { position: fixed; bottom: calc(max(40px, env(safe-area-inset-bottom)) + 168px); width: 54px; height: 54px; border-radius: 50%;
         border: 1px solid rgba(150,232,255,0.6); background: radial-gradient(circle at 50% 38%, rgba(60,150,190,0.45), rgba(8,16,22,0.55)); color: #dff7ff;
-        display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; font: 600 8px Inter, sans-serif; letter-spacing: 0.16em;
-        -webkit-user-select: none; user-select: none; touch-action: none; transition: box-shadow 0.2s, background 0.2s; }
-      #touch .spirit svg { width: 20px; height: 20px; fill: #bdf1ff; filter: drop-shadow(0 0 4px rgba(80,210,255,0.9)); }
-      #touch .spirit .ring { position: absolute; inset: -4px; border-radius: 50%; pointer-events: none;
+        display: flex; align-items: center; justify-content: center; font: 600 8px Inter, sans-serif; letter-spacing: 0.08em;
+        -webkit-user-select: none; user-select: none; touch-action: none; transition: box-shadow 0.2s, background 0.2s, opacity 0.2s; }
+      #touch .skill.rupture { right: max(24px, env(safe-area-inset-right)); }
+      #touch .skill.rift { right: calc(max(24px, env(safe-area-inset-right)) + 66px); }
+      #touch .skill.phantom { right: calc(max(24px, env(safe-area-inset-right)) + 132px); }
+      #touch .skill .ring { position: absolute; inset: -4px; border-radius: 50%; pointer-events: none;
         background: conic-gradient(rgba(120,225,255,0.9) calc(var(--k, 1) * 360deg), rgba(120,225,255,0.12) 0);
-        -webkit-mask: radial-gradient(circle, transparent 29px, #000 30px); mask: radial-gradient(circle, transparent 29px, #000 30px); }
-      #touch .spirit:not(.ready) { opacity: 0.7; }
-      #touch .spirit:not(.ready) svg { fill: rgba(170,210,225,0.6); filter: none; }
-      #touch .spirit.on { background: radial-gradient(circle at 50% 40%, rgba(150,235,255,0.75), rgba(30,90,140,0.6)); box-shadow: 0 0 22px rgba(90,215,255,0.8); }
-      #touch.stance .act.sp { border: 2px solid rgba(140,232,255,0.95); color: #e8fbff; background: rgba(20,80,110,0.42); box-shadow: 0 0 16px rgba(80,210,255,0.65), inset 0 0 12px rgba(80,210,255,0.35); font-size: 8.5px; letter-spacing: 0.05em; }
-      #touch.stance .act.sp.cool { opacity: 0.4; box-shadow: none; }
-      #touch.stance .sprint { opacity: 0.45; }
+        -webkit-mask: radial-gradient(circle, transparent 28px, #000 29px); mask: radial-gradient(circle, transparent 28px, #000 29px); }
+      #touch .skill.ready { box-shadow: 0 0 12px rgba(80,210,255,0.55); }
+      #touch .skill:not(.ready) { opacity: 0.6; }
+      #touch .skill.on { background: radial-gradient(circle at 50% 40%, rgba(150,235,255,0.75), rgba(30,90,140,0.6)); box-shadow: 0 0 22px rgba(90,215,255,0.8); }
       #app canvas { touch-action: none; }
       .touch-only { display: none; }
       @media (pointer: coarse) { .desk-only { display: none; } .touch-only { display: block; } }
@@ -154,7 +153,7 @@
       </div>
       <div class="ctl-panel" id="ctl">
         <div class="desk-only"><b>WASD</b> Move · <b>Mouse</b> Look · <b>Shift</b> Run<br><b>Left click</b> Attack (hold: heavy slash)<br><b>Right click</b> Hold to block · tap to parry<br><b>Block + Attack</b> Guard-break kick · <b>Space</b> Roll<br><b>Q</b> Phantom Step · <b>E</b> Colossus Rift (hold to charge) · <b>R</b> Gravity Rupture</div>
-        <div class="touch-only"><b>Left thumb</b> Move · <b>Right side</b> Look · <b>RUN</b> Run<br><b>ATTACK</b> tap to cut · hold for heavy slash<br><b>BLOCK</b> hold to block · tap to parry<br><b>BLOCK + ATTACK</b> Kick · <b>DODGE</b> Roll<br><b>SPIRIT</b> then <b>DODGE</b> Phantom Step · <b>ATTACK</b> Colossus Rift (hold) · <b>BLOCK</b> Gravity Rupture</div>
+        <div class="touch-only"><b>Left thumb</b> Move · <b>Right side</b> Look · <b>RUN</b> Run<br><b>ATTACK</b> tap to cut · hold for heavy slash<br><b>BLOCK</b> hold to block · tap to parry<br><b>BLOCK + ATTACK</b> Kick · <b>DODGE</b> Roll<br><b>STEP</b> Phantom Step · <b>RIFT</b> Colossus Rift (hold) · <b>RUPTURE</b> Gravity Rupture</div>
       </div>
     </div>
     <div id="hint" class="overlay">

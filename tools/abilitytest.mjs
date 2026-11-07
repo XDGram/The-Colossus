@@ -3,7 +3,7 @@
 // usage: npm run dev   (another terminal)
 //        node tools/abilitytest.mjs [--shots <dir>]
 //
-// Drives the real Input (keyboard Q / E / R, and the touch SPIRIT stance through real touch events) against live
+// Drives the real Input (keyboard Q / E / R, and the touch STEP / RIFT / RUPTURE buttons through real touch events) against live
 // enemies in the dev arena (?combat=...), stepping the game deterministically at 1/60 s. Enemies used as targets have
 // their decisions and steering stubbed on the instance (as in tools/combattest.mjs) so they stand where placed.
 // With --shots, frames of each ability are saved as JPEGs (cinematic camera) for review.
@@ -242,41 +242,34 @@ const save = (name, url) => { if (SHOTS && url) fs.writeFileSync(`${SHOTS}/${nam
   await ctx.close();
 }
 
-// ------------------------------------------------------------------------------------------------ mobile: SPIRIT stance with real touch events
+// ------------------------------------------------------------------------------------------------ mobile: ability buttons with real touch events
 {
   const { p, ctx, errors } = await page('r1b0', { touch: true });
-  await p.evaluate(() => { document.querySelectorAll('#loader,#title,#hint').forEach((e) => (e.style.display = 'none')); const g = window.__tlc; g.arena().brains.forEach((x) => H.freeze(x)); H.setup(0, 38, Math.PI); });
+  await p.evaluate(() => { document.querySelectorAll('#loader,#title,#hint').forEach((e) => (e.style.display = 'none')); const g = window.__tlc; g.arena().brains.forEach((x) => H.freeze(x)); H.setup(0, 38, Math.PI); g.input.spiritStatus(g.abilities().readiness()); });
   const box = async (sel) => (await p.locator(sel).boundingBox());
-  const spiritBox = await box('#touch .spirit'), dodgeBox = await box('#touch .dodge'), atkBox = await box('#touch .attack'), blockBox = await box('#touch .block');
+  const stepBox = await box('#touch .skill.phantom'), riftBox = await box('#touch .skill.rift'), ruptBox = await box('#touch .skill.rupture'), dodgeBox = await box('#touch .dodge');
   const tap = async (bx) => p.touchscreen.tap(bx.x + bx.width / 2, bx.y + bx.height / 2);
-  await tap(spiritBox);
-  const labels = await p.evaluate(() => [...document.querySelectorAll('#touch .act')].map((e) => `${e.className.split(' ')[1]}=${e.textContent}`).join(' '));
-  await tap(dodgeBox);
-  const r1 = await p.evaluate(() => { const g = window.__tlc; g.step(4, 1 / 60, false); return { state: g.combat().state, kind: g.combat().spiritKind, stance: g.input.stance, label: document.querySelector('#touch .dodge').textContent }; });
+  const labels = await p.evaluate(() => [...document.querySelectorAll('#touch .skill')].map((e) => e.textContent).join(' '));
+  await tap(stepBox);
+  const r1 = await p.evaluate(() => { const g = window.__tlc; g.step(4, 1 / 60, false); return { state: g.combat().state, kind: g.combat().spiritKind }; });
   await p.evaluate(() => window.__tlc.step(60, 1 / 60, false));
-  // Normal DODGE outside the stance still rolls.
+  // DODGE still rolls.
   await tap(dodgeBox);
   const r2 = await p.evaluate(() => { const g = window.__tlc; g.step(4, 1 / 60, false); return g.combat().state; });
   await p.evaluate(() => window.__tlc.step(60, 1 / 60, false));
-  // Stance + ATTACK held = Rift charge; release fires.
-  await tap(spiritBox);
-  await p.touchscreen.tap(atkBox.x + atkBox.width / 2, atkBox.y + atkBox.height / 2);
+  await tap(riftBox);
   const r3 = await p.evaluate(() => { const g = window.__tlc; g.step(50, 1 / 60, false); return { kind: g.combat().spiritKind, state: g.combat().state }; });
   await p.evaluate(() => window.__tlc.step(80, 1 / 60, false));
-  await tap(spiritBox); await tap(blockBox);
+  await tap(ruptBox);
   const r4 = await p.evaluate(() => { const g = window.__tlc; g.step(4, 1 / 60, false); return g.combat().spiritKind; });
-  // The stance times out on its own.
-  await p.evaluate(() => window.__tlc.step(120, 1 / 60, false));
-  await tap(spiritBox);
-  if (SHOTS) { await p.evaluate(() => { const g = window.__tlc; g.pause(false); }); await p.screenshot({ path: `${SHOTS}/mobile_stance.jpg`, type: 'jpeg', quality: 85 }); await p.evaluate(() => window.__tlc.pause(true)); }
-  await p.waitForTimeout(2600);
-  const r5 = await p.evaluate(() => { const g = window.__tlc; g.input.spiritStatus(g.abilities().readiness()); return { stance: g.input.stance, label: document.querySelector('#touch .attack').textContent }; });
-  check('Mobile', 'SPIRIT turns DODGE / ATTACK / BLOCK into the abilities', /dodge=STEP/.test(labels) && /attack=RIFT/.test(labels) && /block=RUPTURE/.test(labels), labels);
-  check('Mobile', 'Stance + DODGE = Phantom Step; the stance closes', r1.kind === 'phantom' && !r1.stance && r1.label === 'DODGE', JSON.stringify(r1));
-  check('Mobile', 'DODGE outside the stance still rolls', r2 === 'roll', `state ${r2}`);
-  check('Mobile', 'Stance + ATTACK = Colossus Rift', r3.kind === 'rift' || r3.state === 'spirit', JSON.stringify(r3));
-  check('Mobile', 'Stance + BLOCK = Gravity Rupture', r4 === 'rupture', `kind ${r4}`);
-  check('Mobile', 'The stance times out by itself (2.2 s)', !r5.stance && r5.label === 'ATTACK', JSON.stringify(r5));
+  const r5 = await p.evaluate(() => { const g = window.__tlc; g.input.spiritStatus(g.abilities().readiness()); return [...document.querySelectorAll('#touch .skill')].map((e) => e.classList.contains('ready')); });
+  if (SHOTS) { await p.evaluate(() => { const g = window.__tlc; g.pause(false); }); await p.screenshot({ path: `${SHOTS}/mobile_skills.jpg`, type: 'jpeg', quality: 85 }); await p.evaluate(() => window.__tlc.pause(true)); }
+  check('Mobile', 'Three ability buttons, always shown (no stance)', labels === 'STEP RIFT RUPTURE', labels);
+  check('Mobile', 'STEP = Phantom Step in one tap', r1.kind === 'phantom', JSON.stringify(r1));
+  check('Mobile', 'DODGE still rolls', r2 === 'roll', `state ${r2}`);
+  check('Mobile', 'RIFT = Colossus Rift', r3.kind === 'rift' || r3.state === 'spirit', JSON.stringify(r3));
+  check('Mobile', 'RUPTURE = Gravity Rupture', r4 === 'rupture', `kind ${r4}`);
+  check('Mobile', 'Used abilities show their cooldown', r5.some((x) => !x), JSON.stringify(r5));
   check('Mobile', 'No page errors', errors.length === 0, errors.join(' | ') || 'none');
   await ctx.close();
 }

@@ -64,13 +64,12 @@ track; the temple track pauses where it was and resumes on return.
 - **The final fight:** when he comes out after wave 3 and closes in (within 7.5 m, or after 6 s), the realm takes them
   once more, until **48 s**, or he loses **20%**, or he falls below 30%; the fight then ends in the temple.
 
-**The shatter cinematic** (`src/fx/shatter.ts`, `beginTrans` in `src/combat/encounter.ts`): the world breaks like
-glass. Full version (the first time each way, and the final fight, about 3.9 s): the camera turns to the Warden as a
-rumble rises — raising his blade to go in (lightning answers it), driving it into the ground to come back; the frame
-freezes and cracks run out from him; the glass shatters (the worlds swap underneath) and the shards spin and fall away
-while the camera sweeps in high over the new world and settles behind the player. Quick version (1.25 s): the gameplay
-view cracks and shatters. Everyone is held still and the HUD hides throughout. Sounds: `riser` (rising rumble), glass
-`shatter` going in, `rewind` (the shatter reversed) coming back, with thunder at the break.
+**The storm transition** (`beginTrans` in `src/combat/encounter.ts`, about 3.1 s): seen from the player's own view, the
+camera turning (over the shoulder) to keep the Warden in focus while he raises his blade (going in) or drives it into
+the ground (coming back). A heavy wind rises from him — dust and grit streaming past, the camera shaking harder, a
+storm-wind sound with a low rising rumble — and the world darkens (the final colour grade dims and drains, edges
+closing in). At its darkest, a flash of light: the worlds swap, and the other world is there as the flash fades.
+Everyone is held still and the HUD hides throughout.
 
 In the realm he is **unleashed**: every power, slightly quicker decisions (0.7–1.2 s between attacks instead of
 0.8–1.4 s), cooldowns 1.15× faster, the powers weighted ×2, and no phase changes (they happen in the temple). After any

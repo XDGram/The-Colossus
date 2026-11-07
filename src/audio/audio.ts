@@ -10,13 +10,13 @@ export type SoundName = 'tell' | 'whoosh' | 'vanish' | 'appear' | 'fireCharge' |
   | 'stormCall' | 'stormMark' | 'thunder' | 'roar'
   // Player abilities (docs/abilities.md).
   | 'spiritDash' | 'spiritAppear' | 'spiritCut' | 'riftCharge' | 'riftRelease' | 'riftHit' | 'ruptureCharge' | 'ruptureBoom' | 'ruptureQuake' | 'debris'
-  // Enemy battle cries (attack warnings from off screen) and the realm shatter cinematic.
-  | 'cry' | 'cry2' | 'shatter' | 'riser' | 'rewind'
+  // Enemy battle cries (attack warnings from off screen) and the realm transition (storm wind, rising rumble).
+  | 'cry' | 'cry2' | 'wind' | 'riser'
   // The Temple Warden's voice lines (synthesised from the CC0 "Joe" Piper voice, deepened; see ASSET_CREDITS.md).
   | VoiceLine;
 export type VoiceLine = 'w_intro' | 'w_finish' | 'w_raid1' | 'w_raid2' | 'w_raid3' | 'w_final' | 'w_burn' | 'w_storm';
 export const VOICE: VoiceLine[] = ['w_intro', 'w_finish', 'w_raid1', 'w_raid2', 'w_raid3', 'w_final', 'w_burn', 'w_storm'];
-const FILES: SoundName[] = [...VOICE, 'cry', 'cry2', 'shatter', 'riser', 'rewind', 'tell', 'whoosh', 'vanish', 'appear', 'fireCharge', 'fireWave', 'fireball', 'flame', 'stormCall', 'stormMark', 'thunder', 'roar',
+const FILES: SoundName[] = [...VOICE, 'cry', 'cry2', 'wind', 'riser', 'tell', 'whoosh', 'vanish', 'appear', 'fireCharge', 'fireWave', 'fireball', 'flame', 'stormCall', 'stormMark', 'thunder', 'roar',
   'spiritDash', 'spiritAppear', 'spiritCut', 'riftCharge', 'riftRelease', 'riftHit', 'ruptureCharge', 'ruptureBoom', 'ruptureQuake', 'debris'];
 /** Per-sound mix level and overlap limits. */
 const MIX: Partial<Record<SoundName, { gain?: number; max?: number; gap?: number }>> = {
@@ -24,7 +24,7 @@ const MIX: Partial<Record<SoundName, { gain?: number; max?: number; gap?: number
   flame: { gain: 0.5, max: 2, gap: 0.3 }, fireball: { gain: 0.7, max: 3 }, thunder: { gain: 0.95, max: 3 }, roar: { gain: 0.9 },
   spiritDash: { gain: 1.0 }, spiritAppear: { gain: 0.8 }, spiritCut: { gain: 0.85, max: 4, gap: 0.03 }, riftCharge: { gain: 0.75 }, riftRelease: { gain: 0.95 },
   riftHit: { gain: 0.8, max: 4, gap: 0.04 }, ruptureCharge: { gain: 0.8 }, ruptureBoom: { gain: 1.0 }, ruptureQuake: { gain: 0.7 }, debris: { gain: 0.5, max: 3, gap: 0.08 },
-  cry: { gain: 0.75, max: 2, gap: 0.25 }, cry2: { gain: 0.75, max: 2, gap: 0.25 }, shatter: { gain: 1.0, max: 1 }, riser: { gain: 0.85, max: 1 }, rewind: { gain: 0.9, max: 1 },
+  cry: { gain: 0.75, max: 2, gap: 0.25 }, cry2: { gain: 0.75, max: 2, gap: 0.25 }, wind: { gain: 1.0, max: 1 }, riser: { gain: 0.6, max: 1 },
   ...Object.fromEntries(VOICE.map((v) => [v, { gain: 1.25, max: 1, gap: 0.5 }])),
 };
 
