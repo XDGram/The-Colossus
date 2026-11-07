@@ -40,6 +40,15 @@ export class Terrain {
     for (const c of this.chunks) this.setLod(c, this.lodFor(c, px, pz));
   }
 
+  /** buildAll in time slices (the valley realm builds while the game runs). */
+  async buildAllAsync(px: number, pz: number, yieldFn: () => Promise<unknown>, sliceMs = 10) {
+    let t0 = performance.now();
+    for (const c of this.chunks) {
+      this.setLod(c, this.lodFor(c, px, pz));
+      if (performance.now() - t0 > sliceMs) { await yieldFn(); t0 = performance.now(); }
+    }
+  }
+
   /** Re-evaluates LODs, building at most one new chunk geometry per frame to avoid hitches. */
   update(px: number, pz: number) {
     if (this.queue.length === 0) {

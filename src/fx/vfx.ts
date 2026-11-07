@@ -112,14 +112,14 @@ export class Vfx {
   /** Quality scales particle counts (Low: about half). */
   constructor(scene: THREE.Scene, tex: Map<FxTex, THREE.Texture>, atlas: THREE.Texture, readonly quality: 'high' | 'low') {
     this.tex = tex;
-    this.budget = quality === 'high' ? 600 : 320;
+    this.budget = quality === 'high' ? 1100 : 520;
     for (let i = 0; i < this.budget; i++) {
       const p: Particle = { alive: false, normal: false, cell: 0, color: new THREE.Color(), pos: new THREE.Vector3(), rot: 0, vel: new THREE.Vector3(), grav: 0, drag: 0, age: 0, life: 1, size0: 1, size1: 1, a0: 1, a1: 0, spin: 0, stretch: 1, follow: null };
       this.parts.push(p); this.free.push(p);
     }
     this.add = new Batch(this.budget, atlas, false); this.norm = new Batch(this.budget, atlas, true);
     this.group.add(this.norm.mesh, this.add.mesh);
-    for (let i = 0; i < 48; i++) {
+    for (let i = 0; i < 64; i++) {
       const mat = new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, polygonOffset: true, polygonOffsetFactor: -4, fog: false, toneMapped: false });
       const mesh = new THREE.Mesh(this.plane, mat); mesh.visible = false; mesh.renderOrder = 9; this.group.add(mesh);
       this.decals.push({ mesh, mat, alive: false, age: 0, life: 1, fadeIn: 0, fadeOut: 0, alpha: 1, spin: 0, grow: 0, size: 1 });

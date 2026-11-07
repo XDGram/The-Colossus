@@ -98,7 +98,7 @@ export class EnemyBrain {
     this.nextDecision = THREE.MathUtils.lerp(this.p.decide[0], this.p.decide[1], rnd());
     // Tell cue: a soft glint (pale = parryable, red = unparryable) shown during the warning.
     const tex = glintTexture();
-    this.cue = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, color: 0xffffff, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+    this.cue = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, color: 0xffffff, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
     this.cue.visible = false; this.cue.scale.setScalar(0.35);
     e.object.parent?.add(this.cue);
   }
@@ -393,9 +393,14 @@ export class EnemyBrain {
       this.blockedT = 0; this.unstuckCount++;
     }
     // Locomotion clip with feet matched to ground speed.
-    const wantMove = sp < 0.2 ? idleMove : sp < (this.p.walk + this.p.jog) / 2 || this.e.cls === 'breaker' ? 'walk' : 'jog';
+    const [wantMove, rate] = this.loco(sp, idleMove);
     if (this.e.move !== wantMove) this.e.play(wantMove as never, 0.2);
-    this.e.rate = wantMove === 'walk' ? sp / this.p.nativeWalk : wantMove === 'jog' ? sp / this.p.nativeJog : 1;
+    this.e.rate = rate;
+  }
+  /** Locomotion clip and playback rate for a ground speed (feet matched). */
+  protected loco(sp: number, idleMove: string): [string, number] {
+    const wantMove = sp < 0.2 ? idleMove : sp < (this.p.walk + this.p.jog) / 2 || this.e.cls === 'breaker' ? 'walk' : 'jog';
+    return [wantMove, wantMove === 'walk' ? sp / this.p.nativeWalk : wantMove === 'jog' ? sp / this.p.nativeJog : 1];
   }
   protected turnTo(yaw: number, dt: number) {
     const d = wrap(yaw - this.e.object.rotation.y);

@@ -69,6 +69,22 @@ export class TempleEncounter {
   private flash: HTMLElement;
   private introDone = new Set<string>();
   private pre: EnemyBrain[] = [];
+  /**
+   * The Warden's realm (set by the game): once he closes in, the temple glitches into the valley for a short, brutal
+   * exchange of his powers, then glitches back (src/world/realm.ts). Null: the fight stays in the temple.
+   */
+  realm: {
+    preload(): void; build(): void; readonly ready: boolean; readonly active: boolean;
+    enter(): { player: THREE.Vector3; boss: THREE.Vector3 } | null; exit(): void;
+    glitch(v: number): void; music(valley: boolean): void;
+  } | null = null;
+  /** Realm timing: in, inside (max REALM_TIME or until his health drops to REALM_HP), out, done. */
+  realmStage: 'none' | 'in' | 'inside' | 'out' | 'done' = 'none';
+  private realmT = 0;
+  private wardenT = 0;
+  static readonly REALM_TIME = 38;
+  static readonly REALM_HP = 0.67;
+  static readonly GLITCH = { ramp: 1.1, swap: 1.25, end: 2.0 };
 
   constructor(private arena: CombatArena, private system: CombatSystem, private combat: PlayerCombat, private player: Player,
     private camera: THREE.PerspectiveCamera, private home: { x: number; z: number; yaw: number }, private gate: THREE.Vector3) {
@@ -224,6 +240,8 @@ export class TempleEncounter {
   }
   private startWave(n: 1 | 2 | 3) {
     this.phase = n === 1 ? 'wave1' : n === 2 ? 'wave2' : 'wave3';
+    // The valley realm downloads in the background while the waves are fought (built in the lull after a wave).
+    if (n === 1) setTimeout(() => this.realm?.preload(), 2500);
     const R = (at: 'gate' | 'left' | 'right') => ({ kind: 'runner' as const, at }); let bs = 0; const B = () => ({ kind: 'breaker' as const, at: (bs++ % 2 ? 'left' : 'right') as 'left' | 'right' });
     // Large waves streaming from the gate and both side halls (two attack at a time; the rest circle).
     const mix = (runners: number, breakers: number) => {
@@ -247,10 +265,107 @@ export class TempleEncounter {
     this.system.add(w);
     this.boss.style.display = 'block';
     this.caption('THE TEMPLE WARDEN', '“Then I will finish this myself.”', 3.5);
+    this.realmStage = 'none'; this.wardenT = 0;
+    this.realm?.build();
+  }
+
+  /**
+   * The realm sequence. In: the screen tears and flickers for 1.1 s, the worlds swap at the peak, the glitch settles.
+   * Inside: he is unleashed (every power, faster decisions) for REALM_TIME s or until his health falls to REALM_HP.
+   * Out: the same glitch back to the temple courtyard, where the fight goes on (and the temple music resumes).
+   */
+  private updateRealm(dt: number) {
+    const r = this.realm, w = this.warden as WardenBrain | null;
+    if (!r || !w || w.dead) return;
+    this.wardenT += dt;
+    const G = TempleEncounter.GLITCH, P = this.player.position;
+    switch (this.realmStage) {
+      case 'none': {
+        const close = w.effective().distanceTo(P) < 7.5;
+        if (r.ready && ((close && this.wardenT > 1.2) || this.wardenT > 6)) {
+          this.realmStage = 'in'; this.realmT = 0; r.music(true);
+          this.caption('THE TEMPLE WARDEN', '“Let me show you where this ends.”', 2.5);
+          this.arena.bossCtx.sound?.('stormCall', w.effective());
+        }
+        // Not loaded in time (slow connection): the whole fight stays in the temple.
+        if (!r.ready && this.wardenT > 20) this.realmStage = 'done';
+        break;
+      }
+      case 'in': case 'out': {
+        this.realmT += dt;
+        const t = this.realmT;
+        r.glitch(t < G.ramp ? (t / G.ramp) ** 1.5 : t < G.swap ? 1 : Math.max(0, 1 - (t - G.swap) / (G.end - G.swap)));
+        if (t < G.swap) { this.freeze(true); if (Math.random() < 0.15) this.onShake?.(0.06, 0.15); }
+        if (t >= G.swap && !this.introDone.has(`swap-${this.realmStage}`)) {
+          this.introDone.add(`swap-${this.realmStage}`);
+          this.swapWorld(this.realmStage === 'in');
+        }
+        if (t >= G.end) {
+          r.glitch(0); this.freeze(false);
+          if (this.realmStage === 'in') { this.realmStage = 'inside'; this.realmT = 0; w.unleashed = true; }
+          else { this.realmStage = 'done'; }
+        }
+        break;
+      }
+      case 'inside': {
+        this.realmT += dt;
+        // Brief flickers: the realm is unstable.
+        if (Math.random() < dt * 0.25) r.glitch(0.35); else r.glitch(0);
+        if (this.realmT > TempleEncounter.REALM_TIME || w.hpFrac <= TempleEncounter.REALM_HP) {
+          this.realmStage = 'out'; this.realmT = 0; w.unleashed = false; r.music(false);
+          this.introDone.delete('swap-out');
+          this.caption('', 'The realm shatters.', 2);
+        }
+        break;
+      }
+    }
+  }
+  /** Hold everyone still during the glitch (no hits can land while the world tears). */
+  private frozen = false;
+  private freeze(on: boolean) {
+    if (on === this.frozen) return;
+    this.frozen = on;
+    this.arena.bossCtx.spells?.clear();
+    for (const b of this.arena.brains) {
+      if (b.dead) continue;
+      if (on) { const up = b.update; (b as unknown as { _held: typeof up })._held = up; b.update = (d) => { b.e.update(d); }; }
+      else { const h = (b as unknown as { _held?: EnemyBrain['update'] })._held; if (h) { b.update = h; delete (b as unknown as { _held?: unknown })._held; } }
+    }
+  }
+  private swapWorld(toValley: boolean) {
+    const r = this.realm!, w = this.warden as WardenBrain;
+    let pp: THREE.Vector3, bp: THREE.Vector3;
+    if (toValley) {
+      const at = r.enter(); if (!at) { this.realmStage = 'done'; return; }
+      pp = at.player; bp = at.boss;
+    } else {
+      r.exit();
+      pp = new THREE.Vector3(0, 0, 33); bp = new THREE.Vector3(0, 0, 25);
+    }
+    this.player.teleport(pp.x, pp.z); this.player.setFacing(Math.atan2(bp.x - pp.x, bp.z - pp.z));
+    w.relocate(bp, Math.atan2(pp.x - bp.x, pp.z - bp.z));
+    // Any soldiers still standing follow him through.
+    let i = 0;
+    for (const b of this.arena.brains) if (b !== w && !b.dead) { const q = bp.clone().add(new THREE.Vector3((i++ % 2 ? 1 : -1) * 3, 0, -2)); b.pos.set(q.x, 0, q.z); }
+    this.onSnap?.();
+    this.flashScreen();
+    this.arena.bossCtx.sound?.('thunder', bp);
+    this.onShake?.(0.2, 0.5);
+  }
+  /** Camera snap after a teleport (set by the game). */
+  onSnap: (() => void) | null = null;
+  /** Leave the realm at once (retry after a defeat inside it). */
+  private resetRealm() {
+    if (this.frozen) this.freeze(false);
+    if (this.realm?.active) { this.realm.exit(); this.realm.music(false); }
+    this.realm?.glitch(0);
+    this.realmStage = 'none'; this.realmT = 0; this.wardenT = 0;
+    this.introDone.delete('swap-in'); this.introDone.delete('swap-out');
   }
 
   /** Clean restart after a defeat: same courtyard start, wave 1 again. */
   retry() {
+    this.resetRealm();
     this.end.style.display = 'none'; this.endAt = -1; this.bossPhase = 1; this.cinematic = null; this.pre = []; this.cineBars(false);
     this.doors?.open(0); this.doors?.solid(true);
     this.arena.bossCtx.spells?.clear();
@@ -292,12 +407,12 @@ export class TempleEncounter {
       case 'wave1': case 'wave2': case 'wave3': {
         this.trickle();
         if (!this.queue.length && allDown(this.wave)) {
-          if (this.endAt < 0) this.endAt = this.t;
+          if (this.endAt < 0) { this.endAt = this.t; this.realm?.build(); }
           if (this.t - this.endAt > 2) { this.endAt = -1; if (this.phase === 'wave1') this.startWave(2); else if (this.phase === 'wave2') this.startWave(3); else this.startWarden(); }
         }
         break;
       }
-      case 'warden': if (this.warden!.dead) { if (this.endAt < 0) this.endAt = this.t; if (this.t - this.endAt > 2.5) { this.phase = 'victory'; this.showEnd(true); } } break;
+      case 'warden': this.updateRealm(dt); if (this.warden!.dead) { if (this.endAt < 0) this.endAt = this.t; if (this.t - this.endAt > 2.5) { this.phase = 'victory'; this.showEnd(true); } } break;
     }
     if (this.combat.state === 'dead' && this.phase !== 'defeat' && this.phase !== 'victory') { this.phase = 'defeat'; this.endAt = this.t; }
     if (this.phase === 'defeat' && this.end.style.display !== 'flex' && this.t - this.endAt > 1.5) this.showEnd(false);

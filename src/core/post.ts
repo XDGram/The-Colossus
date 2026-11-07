@@ -79,15 +79,42 @@ const GradeShader = {
     uSaturation: { value: 1.12 },
     uVignette: { value: 0.32 },
     uAspect: { value: 1 },
+    /** Reality glitch (0-1): slice tears, RGB split, block corruption, scanlines and flicker (the valley realm). */
+    uGlitch: { value: 0 },
+    uTime: { value: 0 },
   },
   vertexShader: /* glsl */ `
     varying vec2 vUv;
     void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
   fragmentShader: /* glsl */ `
     uniform sampler2D tDiffuse; uniform vec3 uWarm; uniform vec3 uCool; uniform float uSaturation; uniform float uVignette; uniform float uAspect;
+    uniform float uGlitch; uniform float uTime;
     varying vec2 vUv;
+    float h1(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
     void main() {
-      vec4 c = texture2D(tDiffuse, vUv);
+      vec2 uv = vUv;
+      vec4 c;
+      float g = uGlitch;
+      if (g > 0.001) {
+        float tick = floor(uTime * 24.0);
+        // Horizontal slice tears: random bands shift sideways.
+        float bands = mix(14.0, 40.0, h1(vec2(tick, 3.1)));
+        float band = floor(uv.y * bands);
+        float r = h1(vec2(band, tick));
+        if (r < 0.35 * g + 0.05 * g) uv.x += (h1(vec2(band, tick + 7.0)) - 0.5) * 0.22 * g;
+        // Block corruption: coarse cells jump to another part of the image.
+        vec2 cell = floor(uv * vec2(16.0, 9.0));
+        float br = h1(cell + tick * 0.37);
+        if (br < 0.07 * g * g) uv = fract(uv + vec2(h1(cell + 1.3), h1(cell + 2.7)) * 0.3 * g);
+        // Wobble.
+        uv.x += sin(uv.y * 90.0 + uTime * 40.0) * 0.003 * g;
+        float split = 0.006 + 0.022 * g * h1(vec2(tick, 9.0));
+        vec4 base = texture2D(tDiffuse, uv);
+        c = vec4(texture2D(tDiffuse, uv + vec2(split, 0.0)).r, base.g, texture2D(tDiffuse, uv - vec2(split, split * 0.4)).b, base.a);
+        c.rgb = mix(base.rgb, c.rgb, min(1.0, g * 1.6));
+        // Corrupted blocks flash inverted or saturated.
+        if (br < 0.035 * g) c.rgb = mix(c.rgb, vec3(1.0) - c.gbr, 0.8);
+      } else c = texture2D(tDiffuse, uv);
       float l = dot(c.rgb, vec3(0.2126, 0.7152, 0.0722));
       // Split-tone: shadows lean cool, highlights lean warm.
       vec3 tone = mix(uCool, uWarm, smoothstep(0.15, 0.75, l));
@@ -97,6 +124,14 @@ const GradeShader = {
       col = mix(col, col * col * (3.0 - 2.0 * col), 0.22);
       vec2 d = (vUv - 0.5) * vec2(uAspect, 1.0);
       col *= 1.0 - uVignette * smoothstep(0.35, 1.05, length(d));
+      if (g > 0.001) {
+        // Scanlines, flicker, and a blackout/whiteout pulse at full glitch.
+        col *= 1.0 - 0.18 * g * (0.5 + 0.5 * sin(vUv.y * 900.0 + uTime * 60.0));
+        float fl = h1(vec2(floor(uTime * 30.0), 1.7));
+        col *= 1.0 - g * 0.35 * step(0.7, fl);
+        col += g * g * 0.25 * step(0.93, fl);
+        col += (h1(vUv * 500.0 + uTime) - 0.5) * 0.12 * g;
+      }
       gl_FragColor = vec4(clamp(col, 0.0, 1.0), c.a);
     }`,
 };
@@ -134,6 +169,10 @@ export class Post {
     this.resize(innerWidth, innerHeight);
   }
 
+  /** Reality glitch amount (0-1), driven by the valley-realm transition. */
+  set glitch(v: number) { this.grade.uniforms.uGlitch.value = v; }
+  get glitch() { return this.grade.uniforms.uGlitch.value as number; }
+
   resize(w: number, h: number) {
     this.composer.setSize(w, h);
     this.grade.uniforms.uAspect.value = w / h;
@@ -148,6 +187,7 @@ export class Post {
     this.rays.uniforms.uSun.value.set(p.x * 0.5 + 0.5, p.y * 0.5 + 0.5);
     const off = Math.max(Math.abs(p.x), Math.abs(p.y));
     this.rays.uniforms.uVisible.value = THREE.MathUtils.smoothstep(facing, 0.05, 0.45) * (1 - THREE.MathUtils.smoothstep(off, 1.2, 2.2));
+    this.grade.uniforms.uTime.value = performance.now() / 1000;
     this.composer.render();
   }
 }

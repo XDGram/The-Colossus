@@ -120,6 +120,13 @@ export const ENEMY_HITS: Record<string, EnemyHitDef> = {
   'warden.fireball': { damage: 10, blocked: 3, parryable: false, weight: 'medium' },
   'warden.flame': { damage: 5, blocked: 5, parryable: false, weight: 'light' },
   'warden.lightning': { damage: 22, blocked: 22, parryable: false, weight: 'heavy' },
+  // Unleashed powers (src/boss/spells.ts): every one has a ground warning and can be dodged.
+  'warden.inferno': { damage: 20, blocked: 8, parryable: false, weight: 'heavy' },
+  'warden.meteor': { damage: 24, blocked: 12, parryable: false, weight: 'heavy' },
+  'warden.wrath': { damage: 10, blocked: 10, parryable: false, weight: 'medium' },
+  'warden.thunder': { damage: 10, blocked: 10, parryable: false, weight: 'medium' },
+  'warden.tempest': { damage: 16, blocked: 6, parryable: false, weight: 'heavy' },
+  'warden.tornado': { damage: 7, blocked: 3, parryable: false, weight: 'light' },
 };
 
 /** Damage a player move deals to an enemy (open = in recovery or staggered). */

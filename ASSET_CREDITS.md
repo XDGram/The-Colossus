@@ -43,6 +43,11 @@ Original downloads are kept out of the repository (`assets-src/`, git-ignored). 
 | 80 CC0 RPG SFX (player abilities) | [OpenGameArt](https://opengameart.org/content/80-cc0-rpg-sfx) | rubberduck | CC0 1.0 | Not required (credited) | `blade_01.ogg`, `blade_02.ogg`, `stones_01.ogg` | `public/assets/audio/{riftCharge,spiritCut,ruptureQuake}.mp3` | Layered as above (katana ring, stone grinding) |
 | 75 CC0 breaking / falling / hit sfx | [OpenGameArt](https://opengameart.org/content/75-cc0-breaking-falling-hit-sfx) | rubberduck | CC0 1.0 | Not required (credited) | `bfh1_rock_falling_02.ogg` | `public/assets/audio/debris.mp3` | Loudness-normalised (Gravity Rupture debris landing) |
 
+## Supplied by the project owner
+
+- **Music:** `public/assets/audio/music.m4a` (temple) and `public/assets/audio/valley.m4a` (the Warden's realm),
+  provided by the game's owner for this project.
+
 ## Original work (made for this game)
 
 - **Invaders** (`src/enemies/`): Ash Runner and Iron Breaker armour, masks, helmets, cloth and weapons, all procedural on the Quaternius bodies; seven custom animations as procedural layers.

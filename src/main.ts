@@ -2,24 +2,21 @@ import * as THREE from 'three';
 import { Assets } from './core/assets';
 import { Input } from './core/input';
 import { loadAtmosphere, installFogChunks, FOG } from './world/atmosphere';
-import { Terrain, buildFarTerrain } from './world/terrain';
-import { Water } from './world/water';
 import { Colliders } from './world/colliders';
-import { Ruins } from './world/ruins';
-import { Colossus } from './world/colossus';
-import { ScatterLayer, TreeImpostor, TreeField, Motes, partsOf, placeVegetation, setVegetationTime } from './world/vegetation';
+import { ScatterLayer, TreeImpostor, TreeField, Motes, partsOf, setVegetationTime } from './world/vegetation';
+import { buildValley, VALLEY_MODELS, VALLEY_TEXTURES } from './world/valleyWorld';
 import { Player } from './player/player';
 import { Post } from './core/post';
 import { mulberry32 } from './core/noise';
 import { buildTemple, templeHeight } from './temple/compound';
 import { applyTempleMaterials } from './temple/materials';
 import { SunBeams } from './temple/light';
-import { CardField, crossedCards, flowerCard, grassGenerator, flowerGenerator, bushGeometry, vineGeometry, Birds, setFoliageTime } from './world/foliage';
+import { setFoliageTime } from './world/foliage';
 import { ThirdPersonCamera, TEMPLE_RIG } from './player/camera';
 import { Mentor } from './player/mentorNpc';
 import type { PlayerCombat } from './player/combat';
 import { ground } from './world/ground';
-import { PLAY, COLOSSUS_POS, SITES, terrainHeight } from './world/heightfield';
+import { PLAY, COLOSSUS_POS, terrainHeight } from './world/heightfield';
 
 type Quality = 'high' | 'low';
 const params = new URLSearchParams(location.search);
@@ -45,9 +42,31 @@ const ui = {
 const music = new Audio(`${import.meta.env.BASE_URL}assets/audio/music.m4a`);
 music.loop = true; music.volume = 0.45; music.preload = 'auto';
 const playMusic = () => { music.play().catch(() => {}); };
-const restartMusic = () => { music.currentTime = 0; playMusic(); };
+// The Warden's realm has its own track (assets/audio/valley.m4a, mastered louder, so it plays a little lower). The two
+// crossfade; the temple track pauses in place and resumes where it left off.
+const valleyMusic = new Audio(`${import.meta.env.BASE_URL}assets/audio/valley.m4a`);
+valleyMusic.loop = true; valleyMusic.preload = 'none'; valleyMusic.volume = 0;
+const MUSIC_VOL = 0.45, VALLEY_VOL = 0.36;
+let musicMode: 'temple' | 'valley' = 'temple', musicFade = 0;
+const setMusic = (valley: boolean) => {
+  musicMode = valley ? 'valley' : 'temple'; musicFade = 0;
+  if (valley) { valleyMusic.currentTime = 0; valleyMusic.volume = 0; valleyMusic.play().catch(() => {}); }
+  else { music.volume = 0; playMusic(); }
+};
+/** Crossfade step (real time): 1.4 s; the faded-out track is paused once silent. */
+const fadeMusic = (dt: number) => {
+  if (musicFade >= 1.4) return;
+  musicFade += dt;
+  const k = Math.min(1, musicFade / 1.4), v = musicMode === 'valley';
+  try { music.volume = MUSIC_VOL * (v ? 1 - k : k); valleyMusic.volume = VALLEY_VOL * (v ? k : 1 - k); } catch { /* fixed volume (iOS) */ }
+  if (k >= 1) { if (v) music.pause(); else valleyMusic.pause(); }
+};
+const restartMusic = () => { musicMode = 'temple'; musicFade = 9; valleyMusic.pause(); music.volume = MUSIC_VOL; music.currentTime = 0; playMusic(); };
 playMusic();
-for (const ev of ['pointerdown', 'keydown', 'touchstart']) addEventListener(ev, () => { if (music.paused) playMusic(); }, { passive: true });
+for (const ev of ['pointerdown', 'keydown', 'touchstart']) addEventListener(ev, () => {
+  const m = musicMode === 'valley' ? valleyMusic : music;
+  if (m.paused) m.play().catch(() => {});
+}, { passive: true });
 
 async function main() {
   const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -90,25 +109,11 @@ async function main() {
     sceneName === 'temple'
       // Boulders: only their far LODs. They stand 140 m+ from the courtyard, beyond the 60 m switch to LOD 0.
       ? ['tree_hero', 'ranger', 'boulder_01_lod1', 'boulder_01_lod2']
-      : [
-        'tree_hero', 'ranger',
-        ...['rock_moss_set_01', 'rock_moss_set_02', 'boulder_01'].flatMap((m) => [m, `${m}_lod1`, `${m}_lod2`]),
-        ...['fern_02', 'root_cluster_01', 'tree_stump_01', 'dead_tree_trunk_02', 'dry_branches_medium_01'].flatMap((m) => [m, `${m}_lod1`]),
-      ],
+      : ['tree_hero', 'ranger', ...VALLEY_MODELS],
     sceneName === 'temple'
       ? ['ceramic_roof_01', 'brown_planks_07', 'clay_plaster', 'cobblestone_floor_03', 'wood_planks_grey']
-      : ['ground037', 'grass004', 'ground067', 'rock051', 'rock030', 'rock064', 'bark014'],
+      : VALLEY_TEXTURES,
   );
-  const texLoader = new THREE.TextureLoader();
-  const foliageTex = async (f: string) => {
-    const t = await texLoader.loadAsync(`${import.meta.env.BASE_URL}assets/textures/foliage/${f}`);
-    t.colorSpace = THREE.SRGBColorSpace;
-    t.anisotropy = 4;
-    return t;
-  };
-  // Valley only (grass and flower cards).
-  const [grassAtlas, flowerAtlas] = sceneName === 'temple' ? [null, null] : await Promise.all([foliageTex('grass_atlas.webp'), foliageTex('flowers.webp')]);
-
   // ---- sky & light ----
   scene.background = atmo.background;
   // three.js inverts background/environment rotation internally for render-target cube maps.
@@ -145,6 +150,7 @@ async function main() {
   sun.position.copy(atmo.sunDir).multiplyScalar(300);
   sun.target.position.set(0, 0, 0);
   const templeLayers: ScatterLayer[] = [];
+  const beforeWorld = new Set(scene.children);
   if (sceneName === 'temple') {
     ui.status.textContent = 'Raising the temple';
     await frame();
@@ -229,104 +235,15 @@ async function main() {
       lastT = t;
     };
   } else {
-  ui.status.textContent = 'Raising stone';
-  await frame();
-  const terrain = new Terrain(assets.textures, quality);
-  terrain.buildAll(PLAY.start.x, PLAY.start.z);
-  scene.add(terrain.group);
-  scene.add(buildFarTerrain(terrain.material));
-  const water = new Water();
-  scene.add(water.group);
-  const ruins = new Ruins(colliders, assets.textures);
-  scene.add(ruins.group);
-
-  ui.status.textContent = 'Waking the giant';
-  await frame();
-  const colossus = new Colossus(assets.textures);
-  scene.add(colossus.root);
-  colossus.root.updateMatrixWorld(true);
-  scene.add(colossus.buildLandRoots(colliders));
-
-  ui.status.textContent = 'Growing the forest';
-  await frame();
-  const impostor = new TreeImpostor(renderer, assets.models.tree_hero, sun, atmo.envMap);
-  const veg = placeVegetation(ruins.footprints, colliders);
-  const trees = new TreeField(assets.models.tree_hero, impostor, [...veg.trees, ...colossus.backTreeSpots], quality === 'high' ? 95 : 60, quality === 'high' ? 10 : 5, veg.tints);
-  scene.add(trees.group);
-  const layers: ScatterLayer[] = [];
-  const layer = (model: string, nLods: number, mats: THREE.Matrix4[], maxDist: number, lodDist: number[], castShadow = false, chunk = 40) => {
-    if (!mats.length) return;
-    const names = [model, `${model}_lod1`, `${model}_lod2`].slice(0, nLods);
-    const l = new ScatterLayer(names.map((n) => partsOf(assets.models[n])), mats, { maxDist, lodDist, castShadow, chunk });
-    layers.push(l);
-    scene.add(l.group);
-  };
-  const hq = quality === 'high';
-  layer('root_cluster_01', 2, veg.roots, 260, [hq ? 45 : 25], true, 40);
-  layer('fern_02', 2, veg.ferns, hq ? 110 : 70, [hq ? 20 : 12], false, 18);
-  layer('rock_moss_set_01', 3, veg.rockSets[0], 500, [hq ? 30 : 18, 120], true, 30);
-  layer('rock_moss_set_02', 3, veg.rockSets[1], 500, [hq ? 30 : 18, 120], true, 30);
-  layer('boulder_01', 3, veg.boulders, 1600, [hq ? 45 : 25, 260], true, 60);
-  layer('boulder_01', 3, veg.outcrops, 3000, [hq ? 80 : 50, 500], true, 150);
-  layer('dead_tree_trunk_02', 2, veg.logs, 260, [hq ? 30 : 18], true, 40);
-  layer('tree_stump_01', 2, veg.stumps, 200, [hq ? 25 : 15], true, 40);
-  layer('dry_branches_medium_01', 2, veg.branches, 70, [hq ? 15 : 8], false, 20);
-  for (const [name, m] of Object.entries(assets.models)) m.scene.traverse((o) => {
-    const mesh = o as THREE.Mesh;
-    if (!mesh.isMesh) return;
-    for (const mat of [mesh.material].flat() as THREE.MeshStandardMaterial[]) {
-      mat.envMapIntensity = 0.8;
-      if (/boulder|rock_moss|root_cluster|stump|trunk/.test(name)) harmonise(mat, /boulder/.test(name) ? 0.55 : 0.3);
-    }
-  });
-  // Bushes: built from the tree's own leaf cards, two LODs.
-  {
-    let leafMat: THREE.MeshStandardMaterial | null = null;
-    assets.models.tree_hero.scene.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh && /leaves/i.test((m.material as THREE.Material).name)) leafMat = m.material as THREE.MeshStandardMaterial; });
-    const bushMat = (leafMat as unknown as THREE.MeshStandardMaterial).clone();
-    bushMat.onBeforeCompile = () => {};
-    bushMat.color = new THREE.Color(0.78, 0.86, 0.66);
-    const id = new THREE.Matrix4();
-    const lod = (q: number) => [{ geometry: bushGeometry(assets.models.tree_hero, q, 11), material: bushMat, local: id }];
-    const l = new ScatterLayer([lod(hq ? 700 : 420), lod(160)], veg.bushes, { maxDist: hq ? 260 : 160, lodDist: [hq ? 40 : 22], castShadow: true, chunk: 40 });
-    layers.push(l);
-    scene.add(l.group);
-  }
-  const foliageOpts = { sunDir: atmo.sunDir, sunColor: sun.color, alphaToCoverage: false };
-  const grass = new CardField(crossedCards(2), { ...foliageOpts, map: grassAtlas!, slots: 4, radius: hq ? 60 : 38, density: hq ? 3.2 : 1.8, gen: grassGenerator(ruins.footprints), key: 'grass', wind: 0.35 });
-  const flowers = new CardField(flowerCard(), { ...foliageOpts, map: flowerAtlas!, slots: 4, radius: hq ? 45 : 28, density: hq ? 0.9 : 0.5, gen: flowerGenerator(ruins.footprints), key: 'flowers', wind: 0.12 });
-  scene.add(grass.mesh, flowers.mesh);
-  const birds = new Birds([{ x: COLOSSUS_POS.x, z: COLOSSUS_POS.z + 120, y: 230 }, { x: SITES.terrace.x, z: SITES.terrace.z, y: 70 }, { x: SITES.gate.x, z: SITES.gate.z - 80, y: 85 }]);
-  scene.add(birds.mesh);
-  // Ivy on the ruins, from the tree's leaf cards.
-  {
-    let leafMat: THREE.MeshStandardMaterial | null = null;
-    assets.models.tree_hero.scene.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh && /leaves/i.test((m.material as THREE.Material).name)) leafMat = m.material as THREE.MeshStandardMaterial; });
-    const ivyMat = (leafMat as unknown as THREE.MeshStandardMaterial).clone();
-    ivyMat.onBeforeCompile = () => {};
-    ivyMat.color = new THREE.Color(0.62, 0.74, 0.5);
-    const ivy = new THREE.Mesh(vineGeometry(assets.models.tree_hero, ruins.vineAnchors), ivyMat);
-    ivy.castShadow = true;
-    ivy.receiveShadow = true;
-    scene.add(ivy);
-  }
-  const motes = new Motes();
-  scene.add(motes.points);
-
+    const valley = await buildValley({ renderer, assets, sun, atmo, colliders, quality, parent: scene, center: PLAY.start, tuneAll: true,
+      status: (m) => { ui.status.textContent = m; }, yieldFrame: frame });
     startPos = PLAY.start;
     startYaw = Math.atan2(-(COLOSSUS_POS.x - PLAY.start.x), -(COLOSSUS_POS.z - PLAY.start.z));
-    worldUpdate = (t, cp, pp) => {
-      terrain.update(cp.x, cp.z);
-      trees.update(cp);
-      for (const l of layers) l.update(cp);
-      grass.update(cp);
-      flowers.update(cp);
-      colossus.update(t);
-      water.update(t);
-      birds.update(t);
-      motes.update(t, pp);
-    };
+    worldUpdate = valley.update;
   }
+
+  /** Everything the temple world put in the scene (the valley realm hides it). */
+  const templeObjects = sceneName === 'temple' ? scene.children.filter((c) => !beforeWorld.has(c)) : [];
 
   // ---- player ----
   const input = new Input(renderer.domElement);
@@ -471,6 +388,8 @@ async function main() {
   }
   // The temple fight (normal temple play): Warden confrontation, two waves, then the Warden.
   let encounter: import('./combat/encounter').TempleEncounter | null = null;
+  let realm: import('./world/realm').WardenRealm | null = null;
+  let glitchLevel = 0;
   if (encounterMode && arena && combatSystem) {
     const { TempleEncounter } = await import('./combat/encounter');
     encounter = new TempleEncounter(arena, combatSystem, combat!, player, camera,
@@ -480,7 +399,22 @@ async function main() {
     encounter.retry = () => { restartMusic(); retry(); };
     tpc.snap(player.position);   // the opening starts the player outside the gate
     encounter.onShake = (a, t) => tpc.shake(a, t);
+    encounter.onSnap = () => tpc.snap(player.position);
     encounter.doors = gate;
+    arena.bossCtx.shake = (a, t) => tpc.shake(a, t);
+    // The Warden's realm: the valley, built in the background during the waves.
+    if (!params.has('norealm')) {
+      const { WardenRealm } = await import('./world/realm');
+      realm = new WardenRealm({ scene, renderer, camera, assets, sun, atmo, colliders, quality, temple: templeObjects, tpc, spiritFx });
+      const rm = realm;
+      encounter.realm = {
+        preload: () => { valleyMusic.preload = 'auto'; valleyMusic.load(); void rm.preload().catch(() => {}); },
+        build: () => { void rm.build(); },
+        get ready() { return rm.ready; }, get active() { return rm.active; },
+        enter: () => rm.enter(), exit: () => rm.exit(),
+        glitch: (v) => { glitchLevel = v; }, music: setMusic,
+      };
+    }
   }
   // Development showcase of the invaders (temple only, ?enemies): no AI or combat.
   let enemyShowcase: import('./enemies/showcase').EnemyShowcase | null = null;
@@ -493,7 +427,7 @@ async function main() {
 
   ui.status.textContent = 'Preparing shaders';
   await frame();
-  const updateWorld = (t: number) => worldUpdate(t, camera.position, player.position);
+  const updateWorld = (t: number) => (realm?.active ? realm.update(t, camera.position, player.position) : worldUpdate(t, camera.position, player.position));
   const post = new Post(renderer, scene, camera, quality, atmo.sunDir);
   if (sceneName === 'temple') {
     post.rays.uniforms.uIntensity.value = 0.3;
@@ -584,6 +518,7 @@ async function main() {
   let debugCam: [number[], [number, number, number]] | null = null;
   const update = (dt: number) => {
     t += dt;
+    fadeMusic(dt);
     abilities?.tick(dt);
     // Opening cinematic: the encounter walks the player in from the gate; input waits until the fight starts.
     const cine = started ? encounter?.cinematic ?? null : null;
@@ -634,6 +569,7 @@ async function main() {
     if (!paused) {
       // Hit-stop: ability impacts briefly slow the world.
       update(dt * (abilities?.timeScale(dt) ?? 1));
+      post.glitch = glitchLevel;
       renderer.info.reset();
       post.render();
     }
@@ -651,13 +587,14 @@ async function main() {
   // Hooks used by automated playtests and screenshot capture.
   Object.assign(window, {
     __tlc: {
-      ready: true, stats, start, player, mentor, abilities: () => abilities, spiritFx: () => spiritFx, vfx: () => vfx, enemies: () => enemyShowcase, combat: () => combat, hits: () => hitWorld, hitEvents, arena: () => arena, combatSystem: () => combatSystem, encounter: () => encounter, tpc, input, renderer, scene, camera, post,
+      ready: true, stats, start, player, mentor, abilities: () => abilities, spiritFx: () => spiritFx, vfx: () => vfx, enemies: () => enemyShowcase, combat: () => combat, hits: () => hitWorld, hitEvents, arena: () => arena, combatSystem: () => combatSystem, encounter: () => encounter, realm: () => realm, tpc, input, renderer, scene, camera, post,
       pause: (p: boolean) => { paused = p; renderer.domElement.style.visibility = p ? 'hidden' : 'visible'; },
       /** Deterministic capture for automated tests: simulate n frames, render once, return a JPEG data URL. */
       step: (n: number, dt = 1 / 30, capture = true) => {
         for (let i = 0; i < n; i++) update(dt);
         if (!capture) return { url: '', ms: 0 };
         for (let i = 0; i < 40; i++) updateWorld(t);
+        post.glitch = glitchLevel;
         const t0 = performance.now();
         renderer.info.reset();
         post.render();
@@ -677,20 +614,6 @@ async function main() {
 }
 
 const frame = () => new Promise((r) => requestAnimationFrame(() => r(null)));
-
-/** Pulls a scanned asset's albedo toward the valley's muted grey-green stone palette. */
-function harmonise(mat: THREE.MeshStandardMaterial, amount: number) {
-  if (mat.userData.harmonised) return;
-  mat.userData.harmonised = true;
-  mat.onBeforeCompile = (sh) => {
-    sh.fragmentShader = sh.fragmentShader.replace('#include <map_fragment>', `#include <map_fragment>
-      {
-        float l = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
-        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(l) * vec3(0.93, 0.97, 0.9), ${amount.toFixed(2)});
-      }`);
-  };
-  mat.customProgramCacheKey = () => `harmonise-${amount}`;
-}
 
 main().catch((e) => {
   console.error(e);

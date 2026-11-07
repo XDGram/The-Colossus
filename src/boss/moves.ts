@@ -9,7 +9,8 @@ import { BREAKER, type MoveDef } from '../enemies/moves';
  * Base stances (idle, walk, guard, shudder, guard break, deaths) are the ones the Warden already used.
  */
 export type WardenMove = 'idle' | 'walk' | 'guard' | 'shudder' | 'guardBreak' | 'stagger' | 'deathA' | 'deathB'
-  | 'combo' | 'lunge' | 'cleave' | 'roll' | 'stepslash' | 'flamecut' | 'storm' | 'tpstrike' | 'plunge' | 'palm' | 'raise';
+  | 'combo' | 'lunge' | 'cleave' | 'roll' | 'stepslash' | 'flamecut' | 'storm' | 'tpstrike' | 'plunge' | 'palm' | 'raise'
+  | 'jog' | 'inferno' | 'leap' | 'land' | 'wrath' | 'tempest';
 
 const hit = (t: number, window = 0.06) => ({ t, window, reach: 1.9, arc: 120, damage: 0 });
 
@@ -33,6 +34,18 @@ export const WARDEN: Record<WardenMove, MoveDef> = {
   raise: { segs: [{ clip: 'Sword_Idle' }], duration: 1.9, club: 'none', layer: 'wardenRaise', openFrom: 1.5, recovery: 0.8 },
   storm: { segs: [{ clip: 'Sword_Regular_B', to: 0.53 }, { clip: 'Sword_Regular_C' }], club: 'clip', hits: [hit(0.27), hit(1.2, 0.07)], openFrom: 1.33, recovery: 1.4 },
   tpstrike: { segs: [{ clip: 'Sword_Regular_A' }, { clip: 'Sword_Regular_A_Rec' }], club: 'clip', layer: 'wardenStep', hits: [hit(0.27)], openFrom: 0.33, recovery: 1.2 },
+  // Unleashed powers (the valley realm, and the later phases back in the temple).
+  // Sprint: he closes distance fast instead of walking.
+  jog: { segs: [{ clip: 'Sprint_Loop' }], loop: true, club: 'clip' },
+  // Inferno Wave: a slow, heavy overhead cut; the wall of fire leaves the blade as it lands (0.84 s).
+  inferno: { segs: [{ clip: 'Sword_Regular_C' }], speed: 0.8, club: 'clip', openFrom: 1.0, recovery: 1.3 },
+  // Meteor Fall: the jump (he vanishes at its peak and comes down as a meteor), then the crouched landing.
+  leap: { segs: [{ clip: 'NinjaJump_Start' }], club: 'clip' },
+  land: { segs: [{ clip: 'NinjaJump_Land' }, { clip: 'Sword_Idle' }], duration: 1.6, club: 'clip', openFrom: 0.1, recovery: 1.5 },
+  // Heaven's Wrath: blade raised while lightning chases the player.
+  wrath: { segs: [{ clip: 'Sword_Idle' }], duration: 3.2, club: 'none', layer: 'wardenRaise', openFrom: 2.6, recovery: 0.8 },
+  // Blade Tempest: a whirling dash (the spin is driven by the game) leaving fire tornadoes.
+  tempest: { segs: [{ clip: 'Sword_Heavy_Combo', from: 0.45, to: 0.92 }, { clip: 'Sword_Heavy_Combo', from: 0.45, to: 0.92 }, { clip: 'Sword_Heavy_Combo', from: 0.45, to: 0.92 }, { clip: 'Sword_Regular_A_Rec' }], club: 'clip', openFrom: 1.45, recovery: 1.0 },
 };
 
 /** Warning (tell) before each move and its glint: pale = parryable, red = unparryable, or a spell colour. */
@@ -42,5 +55,7 @@ export const WARDEN_TELL: Record<string, { tell: number; glint: Glint }> = {
   stepslash: { tell: 0.45, glint: 'pale' }, flamecut: { tell: 0.45, glint: 'pale' }, storm: { tell: 0.5, glint: 'pale' },
   tpstrike: { tell: 0.45, glint: 'pale' }, plunge: { tell: 0.4, glint: 'fire' }, palm: { tell: 0.35, glint: 'fire' },
   raise: { tell: 0.3, glint: 'storm' },
+  inferno: { tell: 0.55, glint: 'fire' }, leap: { tell: 0.35, glint: 'fire' }, wrath: { tell: 0.35, glint: 'storm' },
+  tempest: { tell: 0.6, glint: 'red' },
 };
 export const GLINT_COLOR: Record<Glint, number> = { pale: 0xfff2d8, red: 0xff3a22, fire: 0xff8a2a, storm: 0xc9a8ff };

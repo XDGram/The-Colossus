@@ -34,6 +34,16 @@ export class Colliders {
       }
   }
 
+  /**
+   * Exchange contents with another set (the valley realm swaps its world in and out under the same object, so every
+   * system holding this instance — player, enemies, camera, hits — follows the swap).
+   */
+  swapWith(o: Colliders) {
+    const g = this.grid; this.grid = o.grid; o.grid = g;
+    const a = this.all.splice(0), b = o.all.splice(0);
+    this.all.push(...b); o.all.push(...a);
+  }
+
   near(x: number, z: number): Collider[] {
     return this.grid.get(`${Math.floor(x / CELL)},${Math.floor(z / CELL)}`) ?? [];
   }

@@ -15,7 +15,7 @@ Values are the approved design. 450 HP is the starting balance value, to be chec
 | Super-armour | Ordinary hits don't interrupt him. While he isn't attacking, his guard blocks frontal Cut 1 / Cut 2 (as the Breaker) |
 | Phases | **1 Blade** 100–65% → **2 Fire** 65–30% → **3 Storm** below 30%. Each change: he drives his blade into the ground (untouchable), and a shockwave pushes the player back with no damage |
 | Summon | Once, at the start of phase 2: **two Ash Runners**, one to either side behind him |
-| Movement | Walks at 1.5 m/s, holds 1.4–2.0 m with the katana |
+| Movement | Walks at 1.5 m/s holding 1.4–2.0 m; **sprints at 5.4 m/s** to close distance; **blinks** (smoke teleport, 3 m from the player) when more than 7.5 m away, or round in front of the player when he is out of their view (every 5 s; 2.5 s in the realm) |
 
 ## Moves
 
@@ -34,6 +34,40 @@ glints are in `WARDEN_TELL`.
 | 3 | Lightning strikes | Katana raised to the sky; 3 strikes 0.45 s apart, each where the player stood | 0.3 s violet glint; **violet ground circle (r 1.6 m) for 1.0 s** before each strike | 22, **can't be blocked**: full damage and knockdown even when blocking (the strike lands where the player stands, so there is no front to guard) | Keep moving or roll |
 | 3 | Storm combo | `Sword_Regular_B` → `Sword_Regular_C` | 0.5 s pale; **red warning 0.5 s before the second hit** | 12 (3), then 24 (12 + guard break) | Parry the first hit, roll the second |
 | 3 | Teleport strike | Vanishes in smoke and sparks (0.45 s, untouchable), reappears 1.6 m behind or beside the player, then strikes | Arrival flash + sound, then 0.45 s pale | 14 (4) | Parry or roll. Punish window after. Up to 2 in a row |
+
+### Unleashed powers
+
+All five are open in the valley realm (below); back in the temple they join phase 2 (Inferno, Meteor, Tempest) and
+phase 3 (Thunder Step, Wrath). Each is a spell (one at a time; he keeps the attack slot while it is live).
+
+| Phase | Power | Clip / pose | Warning | Damage (blocked) | Counterplay |
+|---|---|---|---|---|---|
+| 2+ | **Inferno Wave** | Slow overhead cut (`Sword_Regular_C` at 0.8×); a wall of fire leaves the blade at 0.84 s and rolls 30 m at 9.5 m/s, widening 5 → 14 m | 0.55 s orange glint; **its whole path glows on the ground for 1.4 s** | 20 (8), knockdown | Run out to the side, or roll through the wall (under 1 m thick) |
+| 2+ | **Meteor Fall** | Leaps 3 m up (`NinjaJump_Start`), bursts into flame and is gone; comes down as a meteor where the player was; crouched landing (`NinjaJump_Land`), open for 1.5 s | **4.6 m orange disc for 1.15 s**, the meteor visible for its last 0.55 s | 24 (12), knockdown; the ground then burns for 3.2 s (5 every 0.5 s) | Leave the disc; punish the landing |
+| 3 | **Thunder Step** | Three teleport strikes in a row; each teleport calls lightning on the player first | **Violet circle (r 1.7 m) for 0.55 s**, then the 0.45 s pale strike warning | Bolt 10 (unblockable); strike 14 (4) | Step out of the circle, then parry or roll the strike |
+| 3 | **Heaven's Wrath** | Blade raised (3.2 s); 9 strikes 0.3 s apart chase the player, led toward where they are heading; the sky flickers with harmless bolts around him | 0.35 s violet glint; **each strike: violet circle (r 1.5 m) for 0.62 s** | 10 each (unblockable) | Keep running and change direction; he is open at the end |
+| 2+ | **Blade Tempest** | Whirling dash (`Sword_Heavy_Combo` spin ×3) along a line up to 11 m, leaving 3 fire tornadoes that drift toward the player for 4 s | 0.6 s red glint; **the dash line on the ground** | Whirl 16 (6), knockdown; tornado 7 (3) once each | Roll sideways off the line; outpace the tornadoes (1.8 m/s) |
+
+## The Warden's realm
+
+When the Warden comes out for the last fight and closes in (within 7.5 m, or after 6 s), the temple **glitches** —
+slice tears, RGB split, block corruption, scanlines and flicker (`src/core/post.ts`, the final grade pass) — and at
+the peak the world swaps to the **Forgotten Valley** (the existing valley scene, `src/world/valleyWorld.ts`): an open
+meadow on the east slope facing the Colossus (`REALM` in `src/world/realm.ts`, 22 m fighting radius). The music
+crossfades to the valley track; the temple track pauses where it was.
+
+In the realm he is **unleashed**: every power, decisions 2–3× faster, cooldowns 1.5× faster, the powers weighted ×3.2,
+and no phase changes. After **38 s**, or when his health falls to **67%**, the realm shatters (the same glitch) and
+the fight returns to the temple courtyard; the temple music resumes and his phases carry on from there.
+
+- **Loading:** the valley's models and textures download during wave 1; it is built (terrain in time slices) in the
+  lull after a wave is cleared, hidden, with its own colliders, and its shaders are compiled in the background. If it
+  is not ready 20 s into the Warden fight (slow connection), the fight stays in the temple.
+- **Swap:** the shared collider set exchanges contents with the valley's (`Colliders.swapWith`), the ground functions
+  are swapped, the temple's objects and Gravity Rupture craters are hidden (the temple's craters come back on return;
+  craters made in the valley stay there). Nothing can hit anyone during the glitch.
+- **Low quality:** a lighter valley (no flowers, bushes, ivy, birds; sparser grass).
+- **Tests:** `tools/realmtest.mjs` (background build, trigger, swap, each power, return, captures).
 
 ## Patterns and fairness
 
