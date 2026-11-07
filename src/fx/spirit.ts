@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 /**
  * Custom effects for the player's supernatural abilities (docs/abilities.md §2, §4): spirit energy is a white core
@@ -11,7 +12,8 @@ import * as THREE from 'three';
  * - Ribbon: a vertical energy ribbon along the body's path (Phantom Step).
  * - Crescent: the Colossus Rift wave (a curved, tapered energy ribbon with two trailing echoes).
  * - Shock: an expanding ground ring plus a translucent wall (Gravity Rupture).
- * - Cracks: radial glowing cracks that race out from the blade and cool down; glyph ring; floating paving debris.
+ * - Crater: the paving heaves up into broken slabs around a sunken centre over dark fractures, with debris thrown
+ *   out and lifted; both stay (the last four craters are kept). Nothing tints the ground.
  * - Blade aura: a glow along the katana while the Rift charges.
  */
 export const SPIRIT = {
@@ -326,7 +328,8 @@ void main() {
   if (uWall > 0.5) {
     // Wall: bright at the ground, fading upward, with rising streaks.
     float h = vUv.y, n = fbm(vec2(vUv.x * 40.0, h * 3.0 - uTime * 5.0));
-    a = pow(1.0 - h, 2.2) * (0.5 + 0.8 * n); k = clamp((1.0 - h) * 0.9 + n * 0.3, 0.0, 1.0);
+    // Fades out at the ground (the wave is in the air; the ground itself is never tinted).
+    a = smoothstep(0.0, 0.3, h) * pow(1.0 - h, 1.6) * (0.5 + 0.8 * n); k = clamp((1.0 - h) * 0.9 + n * 0.3, 0.0, 1.0);
   } else {
     // Ring: a thin bright leading edge with a soft wake inside.
     float r = length(vUv - 0.5) * 2.0;
@@ -354,12 +357,13 @@ export class Shock {
   start(c: THREE.Vector3, r0: number, r1: number, dur: number, life: number, wallH: number) {
     this.alive = true; this.age = 0; this.r0 = r0; this.r1 = r1; this.dur = dur; this.life = life; this.wallH = wallH;
     this.ring.position.set(c.x, c.y + 0.1, c.z); this.wall.position.set(c.x, c.y, c.z);
-    this.ring.visible = true; this.wall.visible = wallH > 0;
+    this.ring.visible = false; this.wall.visible = wallH > 0;   // no glowing ring on the ground
   }
   update(dt: number) {
     if (!this.alive) return;
     this.age += dt;
     if (this.age >= this.life) { this.alive = false; this.ring.visible = this.wall.visible = false; return; }
+    this.ring.visible = false;
     const k = Math.min(1, this.age / this.dur), e = 1 - Math.pow(1 - k, 3), r = THREE.MathUtils.lerp(this.r0, this.r1, e);
     const fade = 1 - Math.max(0, (this.age - this.dur * 0.6) / (this.life - this.dur * 0.6));
     this.ring.scale.set(r, 1, r); this.wall.scale.set(r, this.wallH * (1 - 0.5 * k), r);
@@ -396,102 +400,85 @@ function crackTexture(size: number) {
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.NoColorSpace;
   return t;
 }
-function glyphTexture(size: number) {
-  const c = document.createElement('canvas'); c.width = c.height = size;
-  const g = c.getContext('2d')!; g.fillStyle = '#000'; g.fillRect(0, 0, size, size);
-  const C = size / 2; let seed = 31; const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
-  g.strokeStyle = '#fff'; g.lineCap = 'round';
-  const circle = (r: number, w: number) => { g.lineWidth = w; g.beginPath(); g.arc(C, C, r, 0, Math.PI * 2); g.stroke(); };
-  circle(size * 0.47, size * 0.008); circle(size * 0.42, size * 0.004); circle(size * 0.27, size * 0.005); circle(size * 0.235, size * 0.003);
-  // Original angular glyphs between the outer rings, in the temple's carved-seal manner (not any real script).
-  const n = 20;
-  for (let i = 0; i < n; i++) {
-    const a = (i / n) * Math.PI * 2;
-    g.save(); g.translate(C + Math.cos(a) * size * 0.445, C + Math.sin(a) * size * 0.445); g.rotate(a + Math.PI / 2);
-    g.lineWidth = size * 0.005; const s = size * 0.018;
-    g.beginPath();
-    const strokes = 2 + Math.floor(rnd() * 3);
-    for (let k = 0; k < strokes; k++) {
-      const x0 = (rnd() - 0.5) * 2 * s, y0 = (rnd() - 0.5) * 2 * s;
-      g.moveTo(x0, y0); g.lineTo(x0 + (rnd() < 0.5 ? s * 1.2 : 0), y0 + (rnd() < 0.5 ? s * 1.2 : -s * 0.6));
+/**
+ * A persistent impact crater (Gravity Rupture): the paving around the blade heaves up into broken slabs, tilted with
+ * their outer edges lifted around a sunken centre, over dark fractures. Built at the impact (one merged mesh in the
+ * courtyard's own stone material), it stays: the scene keeps the last few craters.
+ */
+function craterGeometry(R: number, rnd: () => number) {
+  const parts: THREE.BufferGeometry[] = [];
+  const rings: [number, number, number, number][] = [[0.14, 0.4, 7, 0.32], [0.4, 0.7, 11, 0.2], [0.7, 1.0, 15, 0.08]];
+  const v = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
+  for (const [r0, r1, n, heave] of rings) {
+    const off = rnd() * Math.PI * 2;
+    for (let i = 0; i < n; i++) {
+      const a0 = off + (i / n) * Math.PI * 2 + 0.035, a1 = off + ((i + 1) / n) * Math.PI * 2 - 0.035;
+      const ri = (r0 + 0.02) * R, ro = (r1 - 0.02) * R * (0.92 + rnd() * 0.1), th = 0.1 + rnd() * 0.06;
+      const P = (r: number, a: number, y: number) => v(Math.cos(a) * r, y, Math.sin(a) * r);
+      const top = [P(ri, a0, th), P(ri, a1, th), P(ro, a1, th), P(ro, a0, th)], bot = top.map((q) => q.clone().setY(0));
+      const quad = (a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3, d: THREE.Vector3) => [a, b, c, a, c, d];
+      const tris = [...quad(top[0], top[3], top[2], top[1]), ...quad(bot[0], bot[1], bot[2], bot[3]),
+        ...quad(bot[0], top[0], top[1], bot[1]), ...quad(bot[1], top[1], top[2], bot[2]), ...quad(bot[2], top[2], top[3], bot[3]), ...quad(bot[3], top[3], top[0], bot[0])];
+      const g = new THREE.BufferGeometry().setFromPoints(tris);
+      // Heave: pivot on the inner edge, lifting the outer edge (the slabs ride up around the impact), plus some roll.
+      const am = (a0 + a1) / 2, d = v(Math.cos(am), 0, Math.sin(am)), t = v(-Math.sin(am), 0, Math.cos(am));
+      const pivot = d.clone().multiplyScalar(ri);
+      const lift = heave * (0.6 + rnd() * 0.8);
+      const m = new THREE.Matrix4().makeTranslation(pivot.x, 0, pivot.z)
+        .multiply(new THREE.Matrix4().makeRotationAxis(t, lift))
+        .multiply(new THREE.Matrix4().makeRotationAxis(d, (rnd() - 0.5) * 0.25))
+        .multiply(new THREE.Matrix4().makeTranslation(-pivot.x, -0.02 - rnd() * 0.03, -pivot.z));
+      g.applyMatrix4(m);
+      parts.push(g);
     }
-    g.stroke(); g.restore();
   }
-  // Radial ticks and an inner eight-point star.
-  for (let i = 0; i < 64; i++) { const a = (i / 64) * Math.PI * 2, r0 = size * (i % 4 ? 0.27 : 0.25), r1 = size * 0.30; g.lineWidth = size * (i % 4 ? 0.002 : 0.004); g.beginPath(); g.moveTo(C + Math.cos(a) * r0, C + Math.sin(a) * r0); g.lineTo(C + Math.cos(a) * r1, C + Math.sin(a) * r1); g.stroke(); }
-  g.lineWidth = size * 0.004; g.beginPath();
-  for (let i = 0; i <= 16; i++) { const a = (i / 16) * Math.PI * 2, r = size * (i % 2 ? 0.08 : 0.2); const x = C + Math.cos(a) * r, y = C + Math.sin(a) * r; if (i) g.lineTo(x, y); else g.moveTo(x, y); }
-  g.stroke();
-  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.NoColorSpace;
-  return t;
+  const g = mergeGeometries(parts, false)!;
+  g.computeVertexNormals();
+  return g;
 }
-const CRACK_FRAG = /* glsl */`
-uniform sampler2D uMap; uniform float uReveal; uniform float uHeat; uniform float uAlpha; uniform float uHot; uniform float uTime; uniform float uDark;
+export class Crater {
+  readonly group = new THREE.Group();
+  private slabs: THREE.Mesh;
+  private dark: THREE.Mesh;
+  readonly debris: Debris;
+  used = -1;
+  constructor(scene: THREE.Scene, stoneMat: THREE.Material, crackTex: THREE.Texture, debris: Debris) {
+    this.slabs = new THREE.Mesh(new THREE.BufferGeometry(), stoneMat);
+    this.slabs.castShadow = true; this.slabs.receiveShadow = true;
+    // Dark fractures and the sunken centre under the slabs (alpha-blended, no glow).
+    const mat = new THREE.ShaderMaterial({ vertexShader: CRES_VERT, fragmentShader: CRATER_FRAG, transparent: true, depthWrite: false, toneMapped: false,
+      polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4, uniforms: { uMap: { value: crackTex } } });
+    this.dark = new THREE.Mesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), mat);
+    this.dark.renderOrder = 7;
+    this.group.add(this.dark, this.slabs); this.group.visible = false;
+    this.debris = debris;
+    scene.add(this.group);
+  }
+  /** Break the ground at `c` (radius R m) and throw/lift its debris. */
+  start(c: THREE.Vector3, R: number, yaw: number, height: (x: number, z: number) => number, drop: number) {
+    let seed = Math.floor(Math.random() * 1e6) + 1; const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    this.slabs.geometry.dispose();
+    this.slabs.geometry = craterGeometry(R, rnd);
+    this.group.position.set(c.x, c.y + 0.01, c.z); this.group.rotation.y = yaw;
+    this.dark.position.y = 0.05; this.dark.scale.set(R * 3.6, 1, R * 3.6);
+    this.group.visible = this.slabs.visible = this.dark.visible = true;
+    this.debris.lift(c, R * 1.4, height, drop);
+  }
+  clear() { this.group.visible = false; this.debris.clear(); }
+  get meshes() { return [this.dark, this.slabs]; }
+}
+const CRATER_FRAG = /* glsl */`
+uniform sampler2D uMap;
 varying vec2 vUv;
-${NOISE}${RAMP}
 void main() {
   float m = texture2D(uMap, vUv).r;
   float r = length(vUv - 0.5) * 2.0;
-  float vis = smoothstep(uReveal, uReveal - 0.08, r) * smoothstep(1.0, 0.85, r);
-  if (uDark > 0.5) { float crater = smoothstep(0.35, 0.0, r) * 0.55; gl_FragColor = vec4(0.04, 0.035, 0.03, max(m * 0.9, crater) * vis * uAlpha); return; }
-  float pulse = 0.85 + 0.3 * fbm(vec2(r * 6.0 - uTime * 2.0, 0.5));
-  // Heat: 1 = white-hot spirit energy, cooling through cyan and deep blue to nothing.
-  float k = clamp(uHeat * (0.92 - r * 0.45), 0.0, 0.9);
-  vec3 col = spiritRamp(k, uHot) * (0.35 + 1.3 * uHeat);
-  gl_FragColor = vec4(col * m * vis * uAlpha * pulse, 1.0);
+  float pit = smoothstep(0.32, 0.0, r);            // the sunken centre
+  float cracks = m * smoothstep(1.0, 0.75, r);
+  float a = clamp(max(pit * 0.85, cracks * 0.8), 0.0, 0.92);
+  gl_FragColor = vec4(vec3(0.035, 0.03, 0.026), a);
   #include <colorspace_fragment>
 }`;
-const GLYPH_FRAG = /* glsl */`
-uniform sampler2D uMap; uniform float uAlpha; uniform float uHot; uniform float uFlare;
-varying vec2 vUv;
-${RAMP}
-void main() {
-  float m = texture2D(uMap, vUv).r;
-  float r = length(vUv - 0.5) * 2.0;
-  vec3 col = spiritRamp(clamp(0.42 + uFlare * 0.4, 0.0, 1.0), uHot);
-  gl_FragColor = vec4(col * m * uAlpha * (1.0 + uFlare * 1.5) + col * exp(-r * r * 8.0) * uFlare * 0.4, 1.0);
-  #include <colorspace_fragment>
-}`;
-export class GroundMarks {
-  private crack: THREE.Mesh; private dark: THREE.Mesh; private glyph: THREE.Mesh;
-  get meshes() { return [this.crack, this.dark, this.glyph]; }
-  get active() { return this.age >= 0; }
-  private cm: THREE.ShaderMaterial; private dm: THREE.ShaderMaterial; private gm: THREE.ShaderMaterial;
-  private age = -1; private size = 9;
-  constructor(scene: THREE.Scene, quality: 'high' | 'low', hot: number) {
-    const tex = crackTexture(quality === 'high' ? 1024 : 512), gt = glyphTexture(quality === 'high' ? 1024 : 512);
-    const plane = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
-    const u = (map: THREE.Texture, dark: number) => ({ uMap: { value: map }, uReveal: { value: 0 }, uHeat: { value: 1 }, uAlpha: { value: 0 }, uHot: { value: hot }, uTime: { value: 0 }, uDark: { value: dark }, uFlare: { value: 0 } });
-    const deco = { polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 };
-    this.cm = new THREE.ShaderMaterial({ vertexShader: CRES_VERT, fragmentShader: CRACK_FRAG, ...additive, ...deco, uniforms: u(tex, 0) });
-    this.dm = new THREE.ShaderMaterial({ vertexShader: CRES_VERT, fragmentShader: CRACK_FRAG, transparent: true, depthWrite: false, toneMapped: false, ...deco, uniforms: u(tex, 1) });
-    this.gm = new THREE.ShaderMaterial({ vertexShader: CRES_VERT, fragmentShader: GLYPH_FRAG, ...additive, ...deco, uniforms: u(gt, 0) });
-    this.crack = new THREE.Mesh(plane, this.cm); this.dark = new THREE.Mesh(plane, this.dm); this.glyph = new THREE.Mesh(plane, this.gm);
-    this.dark.renderOrder = 8; this.crack.renderOrder = 9; this.glyph.renderOrder = 9;
-    for (const m of [this.crack, this.dark, this.glyph]) { m.visible = false; m.frustumCulled = false; scene.add(m); }
-  }
-  /** Cracks race out from `c` (size: diameter, m); the glyph ring flares and turns. */
-  start(c: THREE.Vector3, size: number, yaw: number) {
-    this.age = 0; this.size = size;
-    for (const m of [this.crack, this.dark]) { m.position.set(c.x, c.y + 0.07, c.z); m.scale.set(size, 1, size); m.rotation.y = yaw; m.visible = true; }
-    this.glyph.position.set(c.x, c.y + 0.085, c.z); this.glyph.scale.set(size * 0.62, 1, size * 0.62); this.glyph.visible = true;
-  }
-  update(dt: number, t: number) {
-    if (this.age < 0) return;
-    this.age += dt;
-    const a = this.age, LIFE = 3.2;
-    if (a >= LIFE) { this.age = -1; this.crack.visible = this.dark.visible = this.glyph.visible = false; return; }
-    const reveal = Math.min(1.05, a / 0.16);
-    const heat = a < 0.15 ? 1 : Math.max(0, 1 - (a - 0.15) / 1.6);
-    const fade = Math.min(1, (LIFE - a) / 1.0);
-    this.cm.uniforms.uReveal.value = this.dm.uniforms.uReveal.value = reveal;
-    this.cm.uniforms.uHeat.value = heat; this.cm.uniforms.uAlpha.value = fade; this.dm.uniforms.uAlpha.value = fade;
-    this.cm.uniforms.uTime.value = t;
-    const gin = Math.min(1, a / 0.1), gout = Math.max(0, 1 - Math.max(0, a - 1.1) / 0.8);
-    this.gm.uniforms.uAlpha.value = gin * gout * 0.7; this.gm.uniforms.uFlare.value = Math.max(0, 1 - a / 0.35);
-    this.glyph.rotation.y += dt * (0.4 + 3 * Math.max(0, 1 - a / 0.5));
-  }
-}
 
 // ------------------------------------------------------------------------------------------------ floating debris
 export class Debris {
@@ -515,12 +502,8 @@ export class Debris {
       const f = seen.get(k)!; P.setXYZ(i, P.getX(i) * f, P.getY(i) * f * 0.55, P.getZ(i) * f);
     }
     g.computeVertexNormals();
-    const mat = new THREE.MeshStandardMaterial({ color: 0xa8a296, roughness: 0.9, map: map ?? undefined, normalMap: normal ?? undefined, emissive: new THREE.Color(0.08, 0.42, 0.75), emissiveIntensity: 0 });
-    mat.onBeforeCompile = (sh) => {
-      sh.fragmentShader = sh.fragmentShader.replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
-        totalEmissiveRadiance *= pow(clamp(-(inverse(viewMatrix) * vec4(normal, 0.0)).y, 0.0, 1.0), 3.0);`);
-    };
-    mat.customProgramCacheKey = () => 'spirit-debris';
+    // Broken paving: plain stone (no glow), the courtyard's cobblestone texture.
+    const mat = new THREE.MeshStandardMaterial({ color: 0xc9c2b4, roughness: 0.92, map: map ?? undefined, normalMap: normal ?? undefined });
     this.mesh = new THREE.InstancedMesh(g, mat, count);
     this.mesh.castShadow = true; this.mesh.frustumCulled = false; this.mesh.count = 0;
     for (let i = 0; i < count; i++) this.parts.push({ p: new THREE.Vector3(), v: new THREE.Vector3(), rot: new THREE.Euler(), spin: new THREE.Vector3(), s: 1, hover: 0, ground: 0, landed: false, live: false, erupt: i < erupt, bounces: 0, rest: 0 });
@@ -538,7 +521,7 @@ export class Debris {
         d.p.set(c.x + Math.sin(a) * rr, 0, c.z + Math.cos(a) * rr); d.ground = height(d.p.x, d.p.z); d.p.y = d.ground + 0.05;
         d.v.set(Math.sin(a) * out, 4.5 + Math.random() * 4.5, Math.cos(a) * out);
         d.spin.set((Math.random() - 0.5) * 14, (Math.random() - 0.5) * 8, (Math.random() - 0.5) * 14);
-        d.s = 0.16 + Math.random() * 0.3;
+        d.s = 0.26 + Math.random() * 0.36;
         return;
       }
       const a = (i / this.parts.length) * Math.PI * 2 + Math.random() * 0.5, rr = 1.0 + Math.random() * (radius - 1);
@@ -546,7 +529,7 @@ export class Debris {
       d.hover = d.ground + 0.6 + Math.random() * 1.5;
       d.v.set(0, 0, 0);
       d.spin.set((Math.random() - 0.5) * 3, (Math.random() - 0.5) * 3, (Math.random() - 0.5) * 3);
-      d.s = 0.24 + Math.random() * 0.3;
+      d.s = 0.3 + Math.random() * 0.34;
     });
     this.height = height;
     this.mesh.count = this.parts.length; this.mesh.visible = true;
@@ -554,13 +537,12 @@ export class Debris {
   private drop = 1;
   private height: (x: number, z: number) => number = () => 0;
   get active() { return this.age >= 0; }
+  clear() { this.age = -1; this.mesh.count = 0; this.mesh.visible = false; }
   update(dt: number) {
     if (this.age < 0) return;
     this.age += dt;
     const a = this.age;
-    const mat = this.mesh.material as THREE.MeshStandardMaterial;
-    mat.emissiveIntensity = a < this.drop ? Math.min(1, a / 0.2) * 0.9 : Math.max(0, 0.9 - (a - this.drop) * 3);
-    let alive = 0;
+    let moving = 0;
     this.parts.forEach((d, i) => {
       if (!d.live) return;
       if (d.erupt) {
@@ -573,7 +555,7 @@ export class Debris {
             if (d.bounces++ < 1) { d.v.set(d.v.x * 0.45, -d.v.y * 0.3, d.v.z * 0.45); d.spin.multiplyScalar(0.4); this.onLand?.(d.p); }
             else { d.landed = true; d.rest = a; }
           }
-        } else if (a - d.rest > 1.6) { d.p.y -= dt * 0.25; if (a - d.rest > 2.6) d.live = false; }
+        }
       } else if (a < this.drop) {
         // Rise fast out of the ground, then hover, bobbing and turning slowly (suspended by the field).
         const k = Math.min(1, a / 0.25), e = 1 - Math.pow(1 - k, 3);
@@ -583,14 +565,15 @@ export class Debris {
         d.v.y -= 22 * dt; d.p.y += d.v.y * dt;
         d.rot.x += d.spin.x * dt * 2; d.rot.z += d.spin.z * dt * 2;
         if (d.p.y <= d.ground + d.s * 0.25) { d.p.y = d.ground + d.s * 0.25; d.landed = true; this.onLand?.(d.p); }
-      } else if (a > this.drop + 1.2) { d.p.y -= dt * 0.25; if (a > this.drop + 2.2) d.live = false; }
+      }
       this.q.setFromEuler(d.rot);
       this.m.compose(d.p, this.q, new THREE.Vector3(d.s, d.s, d.s));
       this.mesh.setMatrixAt(i, this.m);
-      alive++;
+      if (!d.landed || a < this.drop) moving++;
     });
     this.mesh.instanceMatrix.needsUpdate = true;
-    if (!alive) { this.age = -1; this.mesh.count = 0; }
+    // Everything has settled: the debris stays where it fell (no more updates).
+    if (!moving) this.age = -1;
   }
 }
 
@@ -631,25 +614,29 @@ export class SpiritFx {
   readonly ribbon: Ribbon;
   readonly crescents: Crescent[] = [];
   readonly shocks: Shock[] = [];
-  readonly marks: GroundMarks;
-  readonly debris: Debris;
+  /** The last few Gravity Rupture craters stay in the courtyard. */
+  readonly craters: Crater[] = [];
+  private craterNext = 0;
+  /** Debris landing hook (dust and a knock). */
+  set onDebrisLand(fn: ((p: THREE.Vector3) => void) | null) { for (const c of this.craters) c.debris.onLand = fn; }
   readonly aura: BladeAura;
   /** High quality only: one cyan point light (always in the scene so the light count, and shaders, never change). */
   readonly light: THREE.PointLight | null;
   private lightT = 0; private lightPeak = 0; private lightDecay = 1;
   private t = 0;
-  constructor(scene: THREE.Scene, model: THREE.Object3D, bladeMount: THREE.Object3D, quality: 'high' | 'low', stone: { map: THREE.Texture | null; normal: THREE.Texture | null }) {
+  constructor(scene: THREE.Scene, model: THREE.Object3D, bladeMount: THREE.Object3D, quality: 'high' | 'low', stone: { map: THREE.Texture | null; normal: THREE.Texture | null; material?: THREE.Material }) {
     const hot = quality === 'high' ? 2.2 : 1.0;
     this.afterimages = new Afterimages(model, scene, quality === 'high' ? 4 : 2, hot);
     this.ribbon = new Ribbon(scene, 40, 0.3, 1.75, 0.42, hot);
     const cg = crescentGeometry();
     for (let i = 0; i < 2; i++) this.crescents.push(new Crescent(scene, cg, hot));
     for (let i = 0; i < 3; i++) this.shocks.push(new Shock(scene, hot));
-    this.marks = new GroundMarks(scene, quality, hot);
-    this.debris = new Debris(scene, quality === 'high' ? 18 : 9, stone.map, stone.normal, quality === 'high' ? 16 : 9);
+    const crackTex = crackTexture(quality === 'high' ? 1024 : 512);
+    for (let i = 0; i < 4; i++) this.craters.push(new Crater(scene, stone.material ?? new THREE.MeshStandardMaterial({ color: 0x8a8378, roughness: 0.9, map: stone.map ?? undefined }), crackTex,
+      new Debris(scene, quality === 'high' ? 10 : 6, stone.map, stone.normal, quality === 'high' ? 12 : 7)));
     this.aura = new BladeAura(bladeMount, hot);
-    this.light = quality === 'high' ? new THREE.PointLight(0x5fd8ff, 0, 9, 2) : null;
-    if (this.light) scene.add(this.light);
+    // No coloured light: spirit energy glows in the air and on the body, never tints the ground.
+    this.light = null;
   }
   /** Show every effect mesh (for shader compilation at load), then hide them again. */
   prewarm(on: boolean) {
@@ -658,15 +645,20 @@ export class SpiritFx {
     // Hide again, but never an effect that is actually playing (an ability used while shaders were compiling).
     for (const c of this.crescents) c.group.visible = c.alive;
     for (const s of this.shocks) if (!s.alive) for (const m of s.meshes) m.visible = false;
-    if (!this.marks.active) for (const m of this.marks.meshes) m.visible = false;
-    if (!this.debris.active) this.debris.mesh.visible = false;
+    for (const c of this.craters) if (c.used < 0) { for (const m of c.meshes) m.visible = false; c.group.visible = false; c.debris.mesh.visible = false; }
     this.afterimages.hideIdle();
     this.aura.set(0, 0);
   }
   private objects(): THREE.Object3D[] {
-    return [this.ribbon.mesh, ...this.crescents.map((c) => c.group), ...this.shocks.flatMap((s) => s.meshes), ...this.marks.meshes, this.debris.mesh, ...this.afterimages.meshes];
+    return [this.ribbon.mesh, ...this.crescents.map((c) => c.group), ...this.shocks.flatMap((s) => s.meshes), ...this.craters.flatMap((c) => [c.group, ...c.meshes, c.debris.mesh]), ...this.afterimages.meshes];
   }
   crescent() { return this.crescents.find((c) => !c.alive) ?? this.crescents[0]; }
+  /** Break the ground at `c` (persistent; the oldest of the last four craters is reused). */
+  crater(c: THREE.Vector3, R: number, height: (x: number, z: number) => number, drop: number) {
+    const k = this.craters[this.craterNext++ % this.craters.length];
+    k.used = this.t; k.start(c, R, Math.random() * Math.PI * 2, height, drop);
+  }
+  clearCraters() { for (const c of this.craters) { c.clear(); c.used = -1; } }
   shock() { return this.shocks.find((s) => !s.alive) ?? this.shocks[0]; }
   /** Flash the cyan light at a point (decays over `decay` s). */
   flash(p: THREE.Vector3, intensity: number, decay: number) {
@@ -680,7 +672,7 @@ export class SpiritFx {
     this.afterimages.update(dt, this.t); this.ribbon.update(dt);
     for (const c of this.crescents) c.update(dt);
     for (const s of this.shocks) s.update(dt);
-    this.marks.update(dt, this.t); this.debris.update(dt);
+    for (const c of this.craters) c.debris.update(dt);
     if (this.light) { this.lightT += dt; this.light.intensity = this.lightPeak * Math.max(0, 1 - this.lightT / this.lightDecay); }
   }
   get time() { return this.t; }

@@ -138,6 +138,8 @@ async function main() {
   let startPos: { x: number; z: number };
   let startYaw: number;
   let configureCamera: (c: ThirdPersonCamera, p: Player) => void = () => {};
+  /** Static ground meshes of the scene (temple courtyard paving) for surface raycasts at impacts. */
+  let groundMeshes: THREE.Object3D | null = null;
   /** The sealed main gate (temple): its doors can swing open for the opening cinematic. */
   let gate: { open(k: number): void; solid(on: boolean): void } | null = null;
   sun.position.copy(atmo.sunDir).multiplyScalar(300);
@@ -183,6 +185,7 @@ async function main() {
     }
     fog.near = FOG.density * 0.45; // crisper, brighter air than the valley
     scene.add(temple.group);
+    groundMeshes = temple.group;
     const impostor = new TreeImpostor(renderer, assets.models.tree_hero, sun, atmo.envMap);
     // Over-range tint (instance colours are floats): leaf luminance x 2.6 x this lands on bright ginkgo gold.
     const GINKGO = new THREE.Color(2.7, 1.95, 0.32);
@@ -420,15 +423,25 @@ async function main() {
     {
       const [{ SpiritFx }, { Abilities }, { SpiritHud }] = await Promise.all([import('./fx/spirit'), import('./player/abilities'), import('./ui/spirithud')]);
       const stone = assets.textures.cobblestone_floor_03;
-      spiritFx = new SpiritFx(scene, player.model, combat.blade.mount, quality, { map: stone?.color ?? null, normal: stone?.normal ?? null });
+      const { MAT } = await import('./temple/kit');
+      spiritFx = new SpiritFx(scene, player.model, combat.blade.mount, quality, { map: stone?.color ?? null, normal: stone?.normal ?? null, material: MAT.stone });
       spiritFx.afterimages.build();
       abilities = new Abilities({ player, combat, hits: hitWorld, brains: () => arena!.brains, vfx, fx: spiritFx, sound,
-        shake: (a, t) => tpc.shake(a, t), height: groundAt, blocks: (x, y, z) => colliders.blocks(x, y, z) });
+        shake: (a, t) => tpc.shake(a, t), height: groundAt, blocks: (x, y, z) => colliders.blocks(x, y, z),
+        surface: (() => {
+          const rc = new THREE.Raycaster(); rc.far = 1.5;
+          return (x: number, z: number, near: number) => {
+            if (!groundMeshes) return near;
+            rc.set(new THREE.Vector3(x, near + 0.75, z), new THREE.Vector3(0, -1, 0));
+            const h = rc.intersectObject(groundMeshes, true).find((i) => (i.object as THREE.Mesh).isMesh && i.face && i.face.normal.y > 0.5);
+            return h ? h.point.y : near;
+          };
+        })() });
       combat.spirit = abilities;
       combatSystem.abilities = abilities;
       const ab = abilities;
       combatSystem.onAbilityHit = (h, b, r) => ab.onHit(h, b, r);
-      spiritFx.debris.onLand = (p) => ab.debrisLanded(p);
+      spiritFx.onDebrisLand = (p) => ab.debrisLanded(p);
       if (!isTouch) spiritHud = new SpiritHud();
       // Combo and knockdown impacts: the leap's landing kicks up a dust ring; being knocked flying jolts the camera.
       const dustC = new THREE.Color(0.55, 0.5, 0.44);

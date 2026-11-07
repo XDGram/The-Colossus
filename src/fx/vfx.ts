@@ -163,11 +163,13 @@ export class Vfx {
     }
   }
   /** A flat ground decal. `life` < 0 keeps it until killed. `spin` (rad/s) rotates it, `grow` (m/s) widens it. */
-  decal(tex: FxTex, pos: THREE.Vector3, o: { color: THREE.Color; size: number; life: number; fadeIn?: number; fadeOut?: number; alpha?: number; yaw?: number; length?: number; spin?: number; grow?: number }) {
+  decal(tex: FxTex, pos: THREE.Vector3, o: { color: THREE.Color; size: number; life: number; fadeIn?: number; fadeOut?: number; alpha?: number; yaw?: number; length?: number; spin?: number; grow?: number;
+    /** A dark mark (scorch, scar): alpha-blended black from the sprite's luminance instead of additive light. */ dark?: boolean }) {
     const d = this.decals.find((x) => !x.alive); if (!d) return null;
     d.alive = true; d.age = 0; d.life = o.life; d.fadeIn = o.fadeIn ?? 0.08; d.fadeOut = o.fadeOut ?? 0.25; d.alpha = o.alpha ?? 1; d.spin = o.spin ?? 0; d.grow = o.grow ?? 0; d.size = o.size;
     if (d.mat.map !== this.tex.get(tex)) { d.mat.map = this.tex.get(tex)!; d.mat.needsUpdate = true; }
-    d.mat.color.copy(o.color); d.mat.opacity = 0;
+    d.mat.color.copy(o.dark ? new THREE.Color(0.03, 0.025, 0.02) : o.color); d.mat.opacity = 0;
+    d.mat.blending = o.dark ? THREE.NormalBlending : THREE.AdditiveBlending; d.mat.alphaMap = o.dark ? d.mat.map : null; d.mat.needsUpdate = true;
     d.mesh.position.set(pos.x, pos.y + 0.06, pos.z); d.mesh.rotation.set(0, o.yaw ?? 0, 0);
     d.mesh.scale.set(o.size, 1, o.length ?? o.size); d.mesh.visible = true;
     return d;

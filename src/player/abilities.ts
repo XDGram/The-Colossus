@@ -28,6 +28,8 @@ export interface AbilityDeps {
   vfx: Vfx; fx: SpiritFx; sound: (name: string, at?: THREE.Vector3) => void;
   shake: (amount: number, time: number) => void;
   height: (x: number, z: number) => number;
+  /** Visible surface height (paving can sit above the walkable ground height); one raycast, used at impacts. */
+  surface?: (x: number, z: number, near: number) => number;
   blocks: (x: number, y: number, z: number) => boolean;
 }
 interface Wave { key: string; pos: THREE.Vector3; dir: THREE.Vector3; yaw: number; travelled: number; range: number; width: number; scale: number;
@@ -140,7 +142,7 @@ export class Abilities implements SpiritDriver, AbilitySource {
   /** Cooldowns keep running while no ability is active (called by the game every frame). */
   tick(dt: number) { if (this.kind) return; for (const k of Object.keys(this.cool) as SpiritKind[]) this.cool[k] = Math.max(0, this.cool[k] - dt); }
 
-  reset() { this.cool.phantom = this.cool.rift = this.cool.rupture = 0; for (const w of this.waves) { w.done = true; w.crescent.dissipate(); } this.rings.length = 0; }
+  reset() { this.d.fx.clearCraters(); this.cool.phantom = this.cool.rift = this.cool.rupture = 0; for (const w of this.waves) { w.done = true; w.crescent.dissipate(); } this.rings.length = 0; }
   interrupt() {
     if (!this.kind) return;
     if (this.kind === 'phantom') this.d.player.model.visible = true;
@@ -221,7 +223,6 @@ export class Abilities implements SpiritDriver, AbilitySource {
         const start = mid.clone().addScaledVector(dir, r), vel = dir.clone().multiplyScalar(-r / 0.28).add(dir.clone().cross(UP).multiplyScalar(2.5));
         this.d.vfx.spawn('spark_01', start, { color: Math.random() < 0.3 ? C.spiritCore : C.spirit, life: 0.28, size: 0.3, size1: 0.08, vel, alpha: 1, alpha1: 0.3 });
       }
-      if (!this.fired.has('pool')) { this.fired.add('pool'); this.pool = this.d.vfx.decal('circle_05', P.position, { color: C.spirit, size: 1.6, life: -1, fadeIn: 0.25, alpha: 0.9, grow: 1.6 }); this.vortex = this.d.vfx.decal('twirl_02', P.position, { color: C.spirit, size: 3.0, life: -1, fadeIn: 0.4, alpha: 0.7, spin: 4 }); }
       if (this.charge >= 1 && !this.full) {
         // Fully charged: a ping of light from the blade.
         this.full = true;
@@ -298,7 +299,8 @@ export class Abilities implements SpiritDriver, AbilitySource {
       for (const ev of this.d.hits.sweepWeapon(w.key, 'player', { hilt: a, tip: b, radius: A.radius }, origin)) out.push({ move: 'rift', target: ev.target, point: ev.point, scale: w.scale });
       // Scar along the ground and light shed from the tips.
       w.trace += step;
-      if (w.trace > 1.1) { w.trace = 0; this.d.vfx.decal('trace_04', tmp2.set(w.pos.x, gy, w.pos.z), { color: C.spirit, size: w.width * 0.45, length: 1.6, yaw: w.yaw, life: 0.9, fadeIn: 0.03, fadeOut: 0.7, alpha: 0.55 }); }
+      // A scorched scar along its path (dark, not glowing), fading slowly.
+      if (w.trace > 1.1) { w.trace = 0; this.d.vfx.decal('trace_04', tmp2.set(w.pos.x, gy, w.pos.z), { color: C.dust, size: w.width * 0.35, length: 1.6, yaw: w.yaw, life: 5, fadeIn: 0.05, fadeOut: 3, alpha: 0.5, dark: true }); }
       for (const p of [a, b]) if (Math.random() < 0.7) this.d.vfx.spawn('spark_01', p, { color: C.spirit, life: 0.35, size: 0.34, size1: 0.03, vel: w.dir.clone().multiplyScalar(-2).add(new THREE.Vector3(0, 1, 0)), alpha: 1 });
       if (this.d.fx.light && Math.random() < 0.5) this.d.fx.glow(w.pos, 8);
       // Walls stop the wave: sample its centre along this frame's whole step (so a thin wall can't be skipped).
@@ -322,16 +324,15 @@ export class Abilities implements SpiritDriver, AbilitySource {
       // Anticipation: dust lifts, a pull vortex forms under the player.
       if (Math.random() < 0.6) this.d.vfx.spawn('smoke_04', c.clone().add(new THREE.Vector3((Math.random() - 0.5) * 3, 0.05, (Math.random() - 0.5) * 3)),
         { color: C.dust, life: 0.5, size: 0.6, size1: 1.0, vel: new THREE.Vector3(0, 0.8, 0), alpha: 0.35, normal: true });
-      if (!this.fired.has('vortex')) { this.fired.add('vortex'); this.d.vfx.decal('twirl_02', c, { color: C.spirit, size: 3.2, life: A.impact + 0.1, fadeIn: 0.3, fadeOut: 0.1, alpha: 0.55, spin: -6, grow: -3 }); }
       fx.glow(c.clone().setY(c.y + 0.5), this.t / A.impact * 4);
     }
     if (this.t >= A.impact - 0.08 && !this.fired.has('drop')) { this.fired.add('drop'); this.d.combat.playClip('NinjaJump_Land', 0.3, 0); }
     if (this.t >= A.impact && !this.fired.has('impact')) {
       this.fired.add('impact');
-      fx.marks.start(c, 10, Math.random() * Math.PI * 2);
-      fx.shock().start(c, 0.4, A.ring + 1.5, 0.35, 0.7, 1.6);
-      fx.shock().start(c, 0.2, A.ring * 0.6, 0.18, 0.4, 0);
-      fx.debris.lift(c, A.ring - 0.3, this.d.height, A.implode - A.impact + 0.05);
+      // The ground breaks: a crater of heaved slabs that stays, and debris thrown out and lifted by the field. They sit
+      // on the visible paving (which can be above the walkable ground height).
+      const lift = Math.max(0, (this.d.surface?.(c.x, c.z, c.y) ?? c.y) - c.y);
+      fx.crater(c.clone().setY(c.y + lift), 2.6, (x, z) => this.d.height(x, z) + lift, A.implode - A.impact + 0.05);
       fx.flash(c.clone().setY(c.y + 0.6), 16, 0.8);
       this.d.vfx.spawn('star_06', c.clone().setY(c.y + 0.3), { color: C.spiritCore, life: 0.25, size: 4, size1: 1, alpha: 1, rot: 0 });
       this.d.vfx.burst('spark_04', c.clone().setY(c.y + 0.2), { count: 30, color: C.spirit, life: 0.55, size: 0.45, size1: 0.04, speed: 9, up: 2, grav: 10 });
@@ -365,7 +366,7 @@ export class Abilities implements SpiritDriver, AbilitySource {
     if (this.t >= A.implode && !this.fired.has('implode')) {
       // Collapse: the field snaps shut around the blade.
       this.fired.add('implode');
-      fx.shock().start(c, A.implodeRadius + 0.8, 0.2, 0.14, 0.25, 1.0);
+      this.d.vfx.burst('smoke_04', c.clone().setY(c.y + 0.2), { count: 10, color: C.dust, life: 0.5, size: 0.8, size1: 0.3, speed: -5, alpha: 0.4, normal: true, flat: true });
       this.d.vfx.spawn('star_06', c.clone().setY(c.y + 0.5), { color: C.spiritCore, life: 0.2, size: 3, size1: 0.5, alpha: 1, rot: 0 });
       this.d.vfx.burst('spark_04', c.clone().setY(c.y + 0.4), { count: 16, color: C.spirit, life: 0.3, size: 0.25, size1: 0.02, speed: 6, up: 2 });
       this.rings.push({ key: `ability:implode#${++this.serial}`, move: 'implode', c: c.clone(), t: 0, dur: 0.1, r0: 0, r1: A.implodeRadius });
