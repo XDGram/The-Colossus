@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import type { Player } from './player';
-import type { Input } from '../core/input';
+import type { Input, SpiritKind } from '../core/input';
 import { buildKatana } from './katana';
+import { mergeStaticSiblings } from '../core/skinmerge';
 import { BLOCK, BUFFER, HEALTH, MASH_LOCK, PARRY, PLAYER_MOVES, REACT, ROLL, playerDamage, type PlayerMoveName, type Weight } from '../combat/tables';
 
 /**
@@ -11,7 +12,29 @@ import { BLOCK, BUFFER, HEALTH, MASH_LOCK, PARRY, PLAYER_MOVES, REACT, ROLL, pla
  *
  * Per frame: preUpdate() before Player.update (sets movement control), postUpdate() after it (pose fixes).
  */
-export type CombatState = 'free' | 'block' | 'attack' | 'recover' | 'roll' | 'flinch' | 'knockdown' | 'stun' | 'dead';
+export type CombatState = 'free' | 'block' | 'attack' | 'recover' | 'roll' | 'flinch' | 'knockdown' | 'stun' | 'dead'
+  // A supernatural ability is running (src/player/abilities.ts drives it).
+  | 'spirit';
+/** The ability controller, as PlayerCombat sees it (src/player/abilities.ts). */
+export interface SpiritDriver {
+  ready(kind: SpiritKind): boolean;
+  start(kind: SpiritKind, aim: THREE.Vector3, camYaw: number): void;
+  /** Advance the running ability; false when it has finished. */
+  update(dt: number, input: Input, camYaw: number): boolean;
+  /** After the mixer has posed the body (procedural pose layers, effects that follow the body). */
+  pose(dt: number): void;
+  /** A hit or a reset cut the ability short. */
+  interrupt(): void;
+  readonly invulnerable: boolean;
+  /** Root velocity while the ability travels (or null to stand still). */
+  drive(): THREE.Vector3 | null;
+  /** Keep the pelvis over the body (clips with root travel). */
+  readonly lockPelvis: boolean;
+  /** Full reset (defeat / retry): cooldowns cleared. */
+  reset?(): void;
+}
+/** An ability press is kept this long while the player is busy, then dropped. */
+const SPIRIT_BUFFER = 0.3;
 export interface IncomingHit { damage: number; blocked: number; parryable: boolean; weight: Weight; from: THREE.Vector3 }
 export type HitOutcome = 'ignored' | 'dodged' | 'parried' | 'blocked' | 'guardBreak' | 'hit' | 'killed';
 export interface ActiveAttack {
@@ -44,7 +67,7 @@ export class PlayerCombat {
   private katana: ReturnType<typeof buildKatana>;
   private hiltSheathed: THREE.Object3D[] = [];
   private clips = new Map<string, THREE.AnimationClip>();
-  private cur: { a: THREE.AnimationAction; from: number; speed: number; w: number } | null = null;
+  private cur: { a: THREE.AnimationAction; from: number; speed: number; w: number; t0: number } | null = null;
   private prev: { a: THREE.AnimationAction; w: number } | null = null;
   private queued = false; private dropped = false;
   private instance = 0;
@@ -58,6 +81,11 @@ export class PlayerCombat {
   private unchainedCut1: number[] = [];
   private pelvisRest: THREE.Vector3;
   private reactLen = 0;
+  /** Ability controller (temple fight); null leaves the kit exactly as before. */
+  spirit: SpiritDriver | null = null;
+  spiritKind: SpiritKind | null = null;
+  private spiritBuf: SpiritKind | null = null; private spiritBufT = 0;
+  private clipAt: number | null = null;
 
   constructor(private player: Player, clips: THREE.AnimationClip[]) {
     for (const c of clips) this.clips.set(c.name, c);
@@ -65,6 +93,7 @@ export class PlayerCombat {
     const blk = this.clips.get('Sword_Block')!;
     this.clips.set('Sword_Block_Upper', new THREE.AnimationClip('Sword_Block_Upper', blk.duration, blk.tracks.filter((t) => UPPER.test(t.name.split('.')[0]))));
     this.katana = buildKatana(player.model);
+    mergeStaticSiblings(this.katana.mount);
     player.model.traverse((o) => { if (o.name === 'katana-hilt') this.hiltSheathed.push(o); });
     let pelvis: THREE.Object3D | null = null;
     player.model.traverse((o) => { if (o.name === 'pelvis') pelvis = o; });
@@ -77,6 +106,7 @@ export class PlayerCombat {
   /** Invulnerable: roll i-frames, flinch, knockdown get-up, dead. */
   get invulnerable() {
     if (this.state === 'roll') return this.t >= ROLL.invulnerable[0] && this.t <= ROLL.invulnerable[1];
+    if (this.state === 'spirit') return !!this.spirit?.invulnerable;
     if (this.state === 'flinch') return true;
     if (this.state === 'knockdown') return this.t >= REACT.knockdownInvulnerableFrom;
     return this.state === 'dead';
@@ -116,7 +146,20 @@ export class PlayerCombat {
     if (this.attackHold >= 0.2 && !this.heavyDone && (this.state === 'free' || this.state === 'attack' && this.move === 'cut1' && this.t < 0.24)) {
       this.heavyDone = true; this.startMove('heavy', aimDir);
     }
+    // Abilities: a press is buffered briefly; it starts from neutral, block, a cut's recovery, or the tail of a cut.
+    const sp = enabled ? input.consumeSpirit() : null;
+    if (sp) { this.spiritBuf = sp; this.spiritBufT = SPIRIT_BUFFER; }
+    else if (this.spiritBuf && (this.spiritBufT -= dt) <= 0) this.spiritBuf = null;
+    if (this.spiritBuf && this.spirit && this.canSpirit() && this.spirit.ready(this.spiritBuf)) {
+      const k = this.spiritBuf; this.spiritBuf = null;
+      this.move = null; this.parryT = 0; this.lowering = 0; this.instance++; this.spiritKind = k;
+      this.setState('spirit'); this.lastAction = this.clock; if (!this.drawn) this.setDrawn(true);
+      this.spirit.start(k, aimDir, camYaw); this.log(`start ${k}`);
+    }
     switch (this.state) {
+      case 'spirit':
+        if (!this.spirit!.update(dt, input, camYaw)) { this.spiritKind = null; this.clipAt = null; this.toFree(); }
+        break;
       case 'free':
         if (dodge && this.rollCool <= 0) this.startMove('roll', aimDir);
         else if (atk) this.attackFromNeutral(aimDir, input);
@@ -171,20 +214,22 @@ export class PlayerCombat {
     }
     if (this.prev) { this.prev.w -= dt / FADE; this.prev.a.setEffectiveWeight(Math.max(0, this.prev.w)); if (this.prev.w <= 0) { this.prev.a.stop(); this.prev = null; } }
     if (this.cur) {
-      let time = this.cur.from + this.clipTime() * this.cur.speed;
+      let time = this.cur.from + (this.clipTime() - this.cur.t0) * this.cur.speed;
       if (this.holdAt >= 0) time = Math.min(time, this.holdAt);
+      if (this.clipAt !== null) time = this.clipAt;
       this.cur.a.time = Math.min(time, this.cur.a.getClip().duration - 1e-3);
       // The upper-body guard shares bones with locomotion: weight it to dominate them while held.
       if (this.state === 'block') this.cur.a.setEffectiveWeight(this.cur.w * 6);
     }
     this.player.mixer.update(0);
     // Roll and lunge travel with the body: keep the pelvis over it (no double movement).
-    if ((this.state === 'roll' || this.move === 'lunge' && this.state === 'attack') && this.cur) {
+    if ((this.state === 'roll' || this.move === 'lunge' && this.state === 'attack' || this.state === 'spirit' && this.spirit?.lockPelvis) && this.cur) {
       this.pelvis.position.x = THREE.MathUtils.lerp(this.pelvis.position.x, this.pelvisRest.x, this.cur.w);
       this.pelvis.position.z = THREE.MathUtils.lerp(this.pelvis.position.z, this.pelvisRest.z, this.cur.w);
     }
     // Update from the player root (its transform was just moved this frame), so weapon positions are current.
     this.player.object.updateMatrixWorld(true);
+    if (this.state === 'spirit') { this.spirit?.pose(dt); this.player.object.updateMatrixWorld(true); }
     // Active hit window (for the shared hit resolver). The blade is tracked every frame so the first active frame has a previous position.
     const hiltNow = new THREE.Vector3().setFromMatrixPosition(this.katana.hilt.matrixWorld), tipNow = new THREE.Vector3().setFromMatrixPosition(this.katana.tip.matrixWorld);
     const prevHilt = this.bladePrev?.hilt ?? hiltNow, prevTip = this.bladePrev?.tip ?? tipNow;
@@ -206,6 +251,8 @@ export class PlayerCombat {
   receiveHit(h: IncomingHit): HitOutcome {
     if (this.state === 'dead') return 'ignored';
     if (this.invulnerable) { this.log('hit avoided (invulnerable)'); return 'dodged'; }
+    // A hit lands during an ability: it is cut short (the reaction below takes over).
+    if (this.state === 'spirit') { this.spirit?.interrupt(); this.spiritKind = null; this.clipAt = null; this.log('ability interrupted'); }
     const toA = h.from.clone().sub(this.player.position).setY(0).normalize();
     const facing = new THREE.Vector3(Math.sin(this.player.facing), 0, Math.cos(this.player.facing));
     const front = toA.dot(facing) >= Math.cos(THREE.MathUtils.degToRad(BLOCK.arc / 2));
@@ -235,12 +282,26 @@ export class PlayerCombat {
   reset() {
     this.hp = HEALTH.player; this.move = null; this.setState('free'); this.parryT = 0; this.riposteT = 0; this.push = null;
     this.rollCool = this.mashLock = this.parryLock = 0;
+    this.spirit?.interrupt(); this.spirit?.reset?.(); this.spiritKind = null; this.spiritBuf = null; this.clipAt = null;
     if (this.cur) { this.cur.a.stop(); this.cur = null; } if (this.prev) { this.prev.a.stop(); this.prev = null; }
     this.setDrawn(false); this.log('reset');
   }
   parriedByEnemy() { if (this.state !== 'dead') this.react('stun', 'Hit_Head', REACT.parriedStun); }
 
   // ---------------------------------------------------------------- internals
+  private canSpirit() {
+    if (this.state === 'free' || this.state === 'block') return true;
+    if (this.state === 'recover') return this.t >= 0.12;
+    // The tail of a cut (after its hit window) can be cancelled into an ability.
+    if (this.state === 'attack' && this.move) { const a = PLAYER_MOVES[this.move].active; return !!a && this.t > a[1] + 0.05; }
+    return false;
+  }
+  // ---------------------------------------------------------------- ability controller API
+  /** Play a clip as the current action (cross-faded). `hold` clamps playback at that clip time. */
+  playClip(name: string, from: number, speed: number, hold?: number) { this.play(name, from, speed, hold); this.cur!.t0 = this.t; }
+  /** Pin the current clip to a time (null: normal playback from the state timer). */
+  setClipTime(t: number | null) { this.clipAt = t; }
+  get blade() { return this.katana; }
   private canDefend() { return this.state === 'free' || this.state === 'block' || (this.state === 'recover' && this.t >= BLOCK.blockCancelAfter); }
   private attackFromNeutral(aim: THREE.Vector3, input: Input) {
     if (this.riposteT > 0) return this.startMove('riposte', aim);
@@ -315,6 +376,7 @@ export class PlayerCombat {
     const m = this.move ? PLAYER_MOVES[this.move] : null;
     if (m?.drive && (this.state === 'attack' || this.state === 'roll') && this.t >= m.drive.from && this.t <= m.drive.to)
       return this.dir.clone().multiplyScalar(m.drive.dist / (m.drive.to - m.drive.from));
+    if (this.state === 'spirit') return this.spirit?.drive() ?? new THREE.Vector3();
     if (this.state !== 'free' && this.state !== 'block') return new THREE.Vector3();
     return null;
   }
@@ -340,7 +402,7 @@ export class PlayerCombat {
     const a = this.player.mixer.clipAction(clip);
     a.reset(); a.play(); a.paused = true; a.setEffectiveWeight(this.prev ? 0 : 0.0001);
     if (this.prev && this.prev.a === a) this.prev = null;
-    this.cur = { a, from, speed, w: this.prev ? 0 : 0.0001 };
+    this.cur = { a, from, speed, w: this.prev ? 0 : 0.0001, t0: 0 };
     this.holdAt = hold ?? -1;
   }
   private holdAt = -1;

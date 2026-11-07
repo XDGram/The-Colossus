@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { closeFingers, dropPelvis, gripAt, rotateWorld, twoBone, wpos, type HandCal } from './ik';
+import { closeFingers, dropPelvis, gripAt, refresh, rotateWorld, twoBone, wpos, wquat, type HandCal } from './ik';
 import type { LayerName } from './moves';
 
 /**
@@ -119,10 +119,10 @@ export function applyLayer(name: LayerName, t: number, dur: number, ctx: LayerCt
 }
 
 function twoLeg(B: Record<string, THREE.Bone>, s: 'l' | 'r', target: THREE.Vector3, pole: THREE.Vector3) {
-  const fq = B[`foot_${s}`].getWorldQuaternion(new THREE.Quaternion());
+  const fq = wquat(B[`foot_${s}`]);
   twoBone(B[`thigh_${s}`], B[`calf_${s}`], B[`foot_${s}`], target, pole);
-  B[`foot_${s}`].quaternion.copy(B[`foot_${s}`].parent!.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(fq));
-  B[`foot_${s}`].updateMatrixWorld(true);
+  B[`foot_${s}`].quaternion.copy(wquat(B[`foot_${s}`].parent!).invert().multiply(fq));
+  refresh(B[`foot_${s}`]);
 }
 /** One-knee kneel: left foot forward and planted, right knee down near the ground behind. k in [0,1]. */
 function kneel(ctx: LayerCtx, k: number, extra = 0) {

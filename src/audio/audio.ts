@@ -7,12 +7,17 @@ import * as THREE from 'three';
  * only. Files: public/assets/audio (CC0, see ASSET_CREDITS.md).
  */
 export type SoundName = 'tell' | 'whoosh' | 'vanish' | 'appear' | 'fireCharge' | 'fireWave' | 'fireball' | 'flame'
-  | 'stormCall' | 'stormMark' | 'thunder' | 'roar';
-const FILES: SoundName[] = ['tell', 'whoosh', 'vanish', 'appear', 'fireCharge', 'fireWave', 'fireball', 'flame', 'stormCall', 'stormMark', 'thunder', 'roar'];
+  | 'stormCall' | 'stormMark' | 'thunder' | 'roar'
+  // Player abilities (docs/abilities.md).
+  | 'spiritDash' | 'spiritAppear' | 'spiritCut' | 'riftCharge' | 'riftRelease' | 'riftHit' | 'ruptureCharge' | 'ruptureBoom' | 'ruptureQuake' | 'debris';
+const FILES: SoundName[] = ['tell', 'whoosh', 'vanish', 'appear', 'fireCharge', 'fireWave', 'fireball', 'flame', 'stormCall', 'stormMark', 'thunder', 'roar',
+  'spiritDash', 'spiritAppear', 'spiritCut', 'riftCharge', 'riftRelease', 'riftHit', 'ruptureCharge', 'ruptureBoom', 'ruptureQuake', 'debris'];
 /** Per-sound mix level and overlap limits. */
 const MIX: Partial<Record<SoundName, { gain?: number; max?: number; gap?: number }>> = {
   tell: { gain: 0.55, max: 2, gap: 0.12 }, whoosh: { gain: 0.6 }, stormMark: { gain: 0.6, max: 3 },
   flame: { gain: 0.5, max: 2, gap: 0.3 }, fireball: { gain: 0.7, max: 3 }, thunder: { gain: 0.95, max: 3 }, roar: { gain: 0.9 },
+  spiritDash: { gain: 1.0 }, spiritAppear: { gain: 0.8 }, spiritCut: { gain: 0.85, max: 4, gap: 0.03 }, riftCharge: { gain: 0.75 }, riftRelease: { gain: 0.95 },
+  riftHit: { gain: 0.8, max: 4, gap: 0.04 }, ruptureCharge: { gain: 0.8 }, ruptureBoom: { gain: 1.0 }, ruptureQuake: { gain: 0.7 }, debris: { gain: 0.5, max: 3, gap: 0.08 },
 };
 
 export class GameAudio {

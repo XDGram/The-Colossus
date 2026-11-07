@@ -1,15 +1,8 @@
-# Supernatural abilities — design (direction approved; not implemented)
+# Supernatural abilities — Phantom Step, Colossus Rift, Gravity Rupture
 
-Three supernatural abilities for the protagonist: **Phantom Step**, **Colossus Rift** and **Gravity Rupture**.
-
-**Status:** the direction and the decisions below are approved. Implementation waits for:
-1. Stage 2C testing and its approval (`docs/combat.md`).
-2. Explicit approval to start this work.
-
-Until then nothing in the game changes: combat, animations, controls and assets stay as they are.
-
-**Not decided yet (do not invent):** damage, poise/meter values, cooldowns, any resource or mana system, and ranges and durations
-beyond the visual beats proposed here. Those values go into `docs/combat.md` when they are approved.
+**Status: implemented** (see "Implementation" at the end for the shipped values, controls, files and tests). The
+design below is the approved direction the implementation follows; where the implementation settled something the
+design left open (values, clips, timings), the Implementation section is authoritative.
 
 ## Decisions (approved)
 
@@ -232,3 +225,67 @@ Alternative (if the stance tests poorly):
 4. Phantom Step, then Colossus Rift, then Gravity Rupture: visuals, then combat hooks.
 5. Controls: desktop keys, then the mobile SPIRIT stance.
 6. Tests: the abilities run against the Stage 2C harness, plus Low-quality readability and performance checks on mobile.
+
+## 8. Implementation (shipped)
+
+### Values (`src/combat/tables.ts`: `PLAYER_MOVES` entries and `ABILITY`)
+
+| Ability | Input | Cooldown | Hit | Damage | Runner poise | Breaker / Warden meter | Notes |
+|---|---|---|---|---|---|---|---|
+| Phantom Step | Q / SPIRIT → DODGE | 3.5 s | Swept body capsule (r 0.55) along the 6.5 m path | 14 | 20 (flinch) | 12 | 0.07 s crouch, 0.20 s travel, 0.35 s recovery. Untouchable 0.03–0.32 s. Passes through bodies; walls stop it. Bends toward an enemy within 26° of the aim. |
+| Colossus Rift | E hold / SPIRIT → ATTACK hold | 6 s | Moving crescent segment (tip to tip), once per enemy; walls stop it | 34 × charge scale | break | 34 × scale | Min charge 0.3 s, full 1.0 s, auto-release 2.5 s. Scale 0.55 → 1.0 with charge (a tap = 0.685: 23 damage). Width 2.6 → 4.2 m, range 11 → 16 m, 20 m/s. |
+| Gravity Rupture | R / SPIRIT → BLOCK | 10 s | Expanding ground ring 0 → 4.5 m at 0.42 s; collapse ring 2.6 m at 1.2 s | 18 + 12 | break, break | 30 + 16 | Pull 0.5–1.15 s within 7.5 m, up to 6.5 m/s, stopping 1.35 m from the blade. Breakers are pulled at 55 %, the Warden at 30 %. Untouchable 0.30–0.62 s. 1.7 s total. |
+
+Abilities are spirit energy: they are never parried or guarded (no Runner parry, no Breaker frontal guard), but a
+dodging Runner still avoids them. A hit taken while an ability is running (outside its untouchable window) cuts it
+short and applies normally. An ability press is buffered for 0.3 s and can start from neutral, block, a cut's
+recovery, or the tail of a cut (after its hit window). Defeat / retry clears the cooldowns.
+
+### Animation
+
+| Ability | Clips (existing, unmodified) | Procedural |
+|---|---|---|
+| Phantom Step | `Sword_Dash` from 0.08 s at 1.7× (low crouch → dash → follow-through) | Body hidden during travel (afterimages and ribbon show the path) |
+| Colossus Rift | `Sword_Regular_Combo`: held at 0.3 s (blade raised overhead, planted stance) while charging; release plays on at 1.3× | Turns to the camera's aim while charging |
+| Gravity Rupture | `Sword_Heavy_Combo` two-handed raise (held), then `NinjaJump_Land` crouch (held), then its rise | **Custom ground stab:** both arms solved with two-bone IK onto the hilt, blade turned point-down, edge forward; the grip lowers until the tip is 0.15 m in the ground; blended in over the lift, out on the withdraw |
+
+### Effects (`src/fx/spirit.ts`, plus pooled sprites in `src/fx/vfx.ts`)
+
+- **Phantom Step:** inward-collapsing ring and flash at the start; 3–4 afterimages (High) / 2 (Low): the whole body
+  merged into one skinned mesh at load, frozen with a copy of the skeleton, fresnel cyan with flowing energy; a vertical
+  energy ribbon along the path; sparks streaming off the body; reappear flare, mote burst and ring; a white-cyan slash
+  streak across every enemy passed.
+- **Colossus Rift:** blade aura (two crossed glow planes on the katana) growing with the charge, motes spiralling into
+  the blade, a light pool and turning vortex under the player, a ping of light at full charge; the crescent (an arched
+  moon-shaped band with a white core, cyan body and scrolling energy, plus two trailing echoes), tip sparks, a scar
+  along the ground, flashes and sparks on every enemy hit, a burst against walls.
+- **Gravity Rupture:** dust lifting and a pull vortex during the lift; at the impact radial glowing cracks race out
+  from the blade (white-hot, cooling to cyan, then fading), an original glyph ring flares and turns, a shockwave ring
+  and translucent wall expand, paving chunks rise and hover (one instanced mesh, lit cyan from below), dust bursts;
+  dust and sparks stream inward during the pull; the collapse snaps shut with a flash; debris falls with dust puffs.
+- **High quality:** one cyan point light (always present, so no shader recompiles) flashes on the impacts and glows
+  while charging; cores go above 1.0 for the bloom. **Low:** the glow is in the shaders and textures.
+- All effect shaders are compiled during loading (pooled meshes shown during `compileAsync`), so the first use
+  doesn't hitch. Hit-stop (world time ×0.06 for 35–70 ms) and camera shake on impacts.
+
+### Controls
+
+- **Desktop:** Q Phantom Step (toward the movement keys, or facing), E hold to charge / release to fire Colossus Rift
+  (aimed with the camera), R Gravity Rupture. Ability bar bottom left with cooldown sweeps (`src/ui/spirithud.ts`).
+- **Mobile:** the SPIRIT stance as designed in section 6 (one SPIRIT button above the cluster; tap → DODGE / ATTACK /
+  BLOCK become STEP / RIFT / RUPTURE with a cyan rim for 2.2 s, or until one is used or SPIRIT is tapped again). The
+  SPIRIT ring shows readiness; abilities on cooldown are dimmed in the stance. Existing buttons are not moved or resized.
+
+### Audio
+
+Ten sounds in `public/assets/audio/` (`spiritDash`, `spiritAppear`, `spiritCut`, `riftCharge`, `riftRelease`,
+`riftHit`, `ruptureCharge`, `ruptureBoom`, `ruptureQuake`, `debris`), layered from the CC0 packs listed in
+`ASSET_CREDITS.md`, played through the existing `GameAudio` (voice caps, distance falloff, pan).
+
+### Tests
+
+`tools/abilitytest.mjs` (36 checks) drives the real game with real input — keyboard Q / E / R and real touch events on
+the SPIRIT stance — against live enemies: distances, pass-through, damage per enemy and per charge, out-of-range and
+side misses, pull distances and stopping distance, Breaker resistance and meter, untouchable windows, cooldowns,
+interruption by an enemy hit, cancelling a cut's tail, cooldown reset on defeat, and the mobile stance (labels,
+mapping, the normal buttons outside the stance, time-out). `--shots <dir>` saves frames of each ability.

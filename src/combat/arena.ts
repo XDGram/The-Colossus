@@ -28,7 +28,9 @@ export class CombatArena {
   private constructor(visible: (pts: { x: number; y: number; z: number }[], requester: string) => boolean) { this.director = new AttackDirector(visible); }
 
   static async create(spec: string, scene: THREE.Scene, base: string, world: WorldQuery & { lineBlocked(a: THREE.Vector3, b: THREE.Vector3): boolean }, camera: THREE.PerspectiveCamera, origin: THREE.Vector3, facing: number, seed = 1,
-    occluders: () => Capsule[] = () => []) {
+    occluders: () => Capsule[] = () => [],
+    /** Models the game has already loaded (the animation library and the base body): not fetched or parsed again. */
+    preloaded?: { lib?: import('three/examples/jsm/loaders/GLTFLoader.js').GLTF; ranger?: import('three/examples/jsm/loaders/GLTFLoader.js').GLTF }) {
     // Genuine visibility of a warning: every point clearly inside the view (inset from the edges, in front of the
     // camera) AND an unobstructed line from the camera to it (walls, buildings and other colliders block it).
     const INSET = 0.85;
@@ -53,7 +55,7 @@ export class CombatArena {
     let a: CombatArena;
     a = new CombatArena(visible);
     const gl = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
-    const [lib, ranger] = await Promise.all([gl.loadAsync(`${base}assets/models/enemies.glb`), gl.loadAsync(`${base}assets/models/ranger.glb`)]);
+    const [lib, ranger] = await Promise.all([preloaded?.lib ?? gl.loadAsync(`${base}assets/models/enemies.glb`), preloaded?.ranger ?? gl.loadAsync(`${base}assets/models/ranger.glb`)]);
     const runners = +(spec.match(/r(\d)/)?.[1] ?? 0), breakers = +(spec.match(/b(\d)/)?.[1] ?? 0), wardens = +(spec.match(/w(\d)/)?.[1] ?? 0);
     const warden = wardens || spec === 'encounter' ? await loadWardenAssets(base) : null;
     const rnd = mulberry32(seed);
@@ -96,7 +98,7 @@ export class CombatArena {
   }
   /** Remove every enemy (encounter restart). */
   clear() {
-    for (const b of this.brains) { this.director.release(b.id); this.scene.remove(b.e.object); b.removed = true; this.onClear?.(b); }
+    for (const b of this.brains) { this.director.release(b.id); this.scene.remove(b.e.object); b.removed = true; this.onClear?.(b); b.dispose(); }
     this.brains.length = 0; this.spawns.length = 0;
   }
 

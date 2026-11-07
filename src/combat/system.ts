@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { HitWorld, BODY, WEAPON_RADIUS, type HitEvent } from './hits';
 import type { EnemyBrain } from './brain';
-import type { PlayerCombat, ActiveAttack } from '../player/combat';
+import type { PlayerCombat } from '../player/combat';
 import type { Player } from '../player/player';
 import { BOSS, ENEMY_HITS, HEALTH, OPEN_METER, meterGain, playerDamage, PLAYER_MOVES, type EnemyHitDef, type PlayerMoveName } from './tables';
 
@@ -36,6 +36,11 @@ const kneeLen = (b: EnemyBrain) => (b.e.kind === 'warden' ? BOSS.kneeDrop : METE
 /** A hit on the player from a spell hazard (src/boss/spells.ts), applied through the normal block/parry/dodge rules. */
 export interface HazardHit { key: string; table: string; from: THREE.Vector3; source: EnemyBrain | null }
 export interface HazardSource { update(dt: number): HazardHit[] }
+/** A hit on an enemy from a player ability (src/player/abilities.ts): no katana, never parried or guarded. */
+export interface AbilityHit { move: PlayerMoveName; target: string; point: THREE.Vector3; scale?: number }
+export interface AbilitySource { sweep(dt: number): AbilityHit[] }
+/** Result of a player hit on an enemy (for ability feedback: sparks, hit-stop). */
+export type PlayerHitResult = 'none' | 'dodged' | 'parried' | 'guarded' | 'immune' | 'hit' | 'killed';
 
 export class CombatSystem {
   readonly vitals = new Map<EnemyBrain, Vitals>();
@@ -49,6 +54,10 @@ export class CombatSystem {
   autoRestart = true;
   /** Spell hazards (fire, lightning) that can hit the player; updated every frame. */
   hazards: HazardSource | null = null;
+  /** Player abilities: hit sources swept after the katana each frame. */
+  abilities: AbilitySource | null = null;
+  /** Called for every ability hit with its result (feedback). */
+  onAbilityHit: ((h: AbilityHit, b: EnemyBrain, r: PlayerHitResult) => void) | null = null;
   constructor(readonly hits: HitWorld, private player: Player, private combat: PlayerCombat, private brains: EnemyBrain[]) {
     for (const b of brains) this.add(b);
   }
@@ -73,7 +82,14 @@ export class CombatSystem {
     // Player katana → enemies.
     const a = this.combat.activeAttack;
     if (a) for (const e of this.hits.sweepWeapon(a.key, 'player', { hilt: a.hilt, tip: a.tip, radius: WEAPON_RADIUS.blade }, this.combat.chest(), { hilt: a.prevHilt, tip: a.prevTip }))
-      this.playerHits(a, e);
+      this.playerHits(a.move, e.target);
+    // Player abilities → enemies.
+    if (this.abilities) for (const h of this.abilities.sweep(dt)) {
+      const b = this.brains.find((x) => x.id === h.target);
+      if (!b) continue;
+      const r = this.playerHits(h.move, h.target, h.scale ?? 1, true);
+      this.onAbilityHit?.(h, b, r);
+    }
     // Enemy attacks → player.
     for (const b of this.brains) if (!b.dead && b.state === 'attack') this.enemyAttack(b);
     // Spell hazards → player.
@@ -90,32 +106,32 @@ export class CombatSystem {
   }
 
   // ------------------------------------------------------------------ player → enemy
-  private playerHits(a: ActiveAttack, ev: HitEvent) {
-    const b = this.brains.find((x) => x.id === ev.target);
-    if (!b || b.dead) return;
+  /** Apply one player hit (katana move or ability) to an enemy. Abilities are spirit energy: never parried or guarded. */
+  private playerHits(move: PlayerMoveName, target: string, scale = 1, ability = false): PlayerHitResult {
+    const b = this.brains.find((x) => x.id === target);
+    if (!b || b.dead) return 'none';
     const v = this.vitals.get(b)!;
-    const move = a.move as PlayerMoveName;
     // Dodging Runners are untouchable.
-    if (b.invulnerable) { this.note('dodged', b.id, undefined, move); return; }
+    if (b.invulnerable) { this.note('dodged', b.id, undefined, move); return 'dodged'; }
     const toPlayer = this.player.position.clone().sub(b.effective()).setY(0).normalize();
     const facing = new THREE.Vector3(Math.sin(b.e.object.rotation.y + b.e.pivot.rotation.y), 0, Math.cos(b.e.object.rotation.y + b.e.pivot.rotation.y));
     const front = toPlayer.dot(facing) > 0.5; // within 60 deg of where the enemy faces
     // A parrying Runner turns the cut aside and stuns the player.
-    if (b.e.cls === 'runner' && b.parrying && front) { this.combat.parriedByEnemy(); this.note('enemy parried', b.id, undefined, move); return; }
+    if (!ability && b.e.cls === 'runner' && b.parrying && front) { this.combat.parriedByEnemy(); this.note('enemy parried', b.id, undefined, move); return 'parried'; }
     // The Breaker's guard blocks frontal Cut 1 / Cut 2 when he isn't attacking; it pushes the player back.
-    if (b.e.cls === 'breaker' && front && (move === 'cut1' || move === 'cut2') && ['hold', 'reposition', 'approach'].includes(b.state)) {
-      this.combat.pushFrom(b.effective(), 0.3); this.note('guard blocked', b.id, 0, move); return;
+    if (!ability && b.e.cls === 'breaker' && front && (move === 'cut1' || move === 'cut2') && ['hold', 'reposition', 'approach'].includes(b.state)) {
+      this.combat.pushFrom(b.effective(), 0.3); this.note('guard blocked', b.id, 0, move); return 'guarded';
     }
     const open = b.isOpen();
-    const dmg = playerDamage(move, open);
+    const dmg = Math.round(playerDamage(move, open) * scale);
     v.hp = Math.max(0, v.hp - dmg);
     this.note('hit', b.id, dmg, `${move}${open ? ' (open x1.5)' : ''} hp ${v.hp}`);
-    if (v.hp <= 0) { b.kill(); this.note('killed', b.id); return; }
+    if (v.hp <= 0) { b.kill(); this.note('killed', b.id); return 'killed'; }
     const m = PLAYER_MOVES[move];
     if (b.e.cls === 'runner') {
       // Poise: a break flinches him and interrupts his attack only before its first hit has landed.
       const breaks = m.poise === 'break';
-      v.poise += breaks ? POISE.runner : (m.poise as number) * (open ? OPEN_METER : 1); v.lastPoise = this.time;
+      v.poise += breaks ? POISE.runner : (m.poise as number) * scale * (open ? OPEN_METER : 1); v.lastPoise = this.time;
       if (breaks) { v.poise = 0; b.react('stagger'); this.note('poise broken (riposte)', b.id); }
       else if (v.poise >= POISE.runner) {
         v.poise = 0;
@@ -126,11 +142,12 @@ export class CombatSystem {
     } else {
       // Super-armour: ordinary hits never interrupt. The meter builds toward the knee-drop.
       const behind = toPlayer.dot(facing) < -0.17;
-      if (this.time < v.immuneUntil) { this.note('meter immune', b.id); return; }
-      const gain = meterGain(move, open, behind);
+      if (this.time < v.immuneUntil) { this.note('meter immune', b.id); return 'immune'; }
+      const gain = meterGain(move, open, behind) * scale;
       this.addMeter(b, v, gain, `${move}${open ? ' open' : ''}${behind ? ' behind' : ''}`);
       if (b.state === 'hold' || b.state === 'reposition') b.react('flinch'); // small shudder while not attacking
     }
+    return 'hit';
   }
   private addMeter(b: EnemyBrain, v: Vitals, gain: number, why: string) {
     v.meter += gain; v.lastMeter = this.time;

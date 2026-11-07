@@ -23,7 +23,9 @@ export interface PlayerMove {
   /** Root drive (m) over a time window, for moves that travel. */
   drive?: { dist: number; from: number; to: number };
 }
-export type PlayerMoveName = 'cut1' | 'cut2' | 'cut3' | 'lunge' | 'riposte' | 'roll' | 'heavy' | 'kick';
+export type PlayerMoveName = 'cut1' | 'cut2' | 'cut3' | 'lunge' | 'riposte' | 'roll' | 'heavy' | 'kick'
+  // Supernatural abilities (docs/abilities.md): hit sources driven by src/player/abilities.ts, not katana sweeps.
+  | 'phantom' | 'rift' | 'rupture' | 'implode';
 
 export const PLAYER_MOVES: Record<PlayerMoveName, PlayerMove> = {
   cut1: { clip: 'Sword_Regular_A', to: 0.43, active: [0.24, 0.3], chain: [0.33, 0.43], next: 'cut2',
@@ -40,7 +42,28 @@ export const PLAYER_MOVES: Record<PlayerMoveName, PlayerMove> = {
   // Guard-break kick (Attack while blocking): Melee_Hook (hit 0.27 s).
   kick: { clip: 'Melee_Hook', to: 0.47, active: [0.22, 0.32], rec: { clip: 'Melee_Hook_Rec', length: 0.3 }, vulnerableUntil: 0.77, damage: 4, poise: 'break', meter: 25 },
   roll: { clip: 'Roll', to: 0.75, vulnerableUntil: 0.75, drive: { dist: 2.4, from: 0.02, to: 0.55 } },
+  // Abilities: damage / poise / meter per hit (timelines in ABILITY below). Rift values are at full charge
+  // (scaled by ABILITY.rift.minScale at minimum charge).
+  phantom: { clip: 'Sword_Dash', to: 0.62, vulnerableUntil: 0.62, damage: 14, poise: 20, meter: 12 },
+  rift: { clip: 'Sword_Regular_C', to: 1.0, vulnerableUntil: 1.0, damage: 34, poise: 'break', meter: 34 },
+  rupture: { clip: 'NinjaJump_Land', to: 1.7, vulnerableUntil: 1.7, damage: 18, poise: 'break', meter: 30 },
+  implode: { clip: 'NinjaJump_Land', to: 1.7, vulnerableUntil: 1.7, damage: 12, poise: 'break', meter: 16 },
 };
+
+/**
+ * Supernatural abilities (docs/abilities.md). Times are seconds from the ability's start.
+ * - Phantom Step (Q): a dash that passes through enemies, cutting each once. Untouchable while travelling.
+ * - Colossus Rift (E): hold to charge (min/full), release a crescent wave that travels forward.
+ * - Gravity Rupture (R): katana driven into the ground; an expanding ring hits, then nearby enemies are pulled in,
+ *   then the field collapses (second hit around the player).
+ */
+export const ABILITY = {
+  phantom: { cooldown: 3.5, anticipate: 0.07, travel: 0.2, recover: 0.35, dist: 6.5, invulnerable: [0.03, 0.32] as [number, number], radius: 0.55 },
+  rift: { cooldown: 6, minCharge: 0.3, fullCharge: 1.0, maxHold: 2.5, release: 0.12, recover: 0.55, minScale: 0.55,
+    speed: 20, range: [11, 16] as [number, number], width: [2.6, 4.2] as [number, number], height: 1.0, radius: 0.35 },
+  rupture: { cooldown: 10, impact: 0.42, implode: 1.2, end: 1.7, invulnerable: [0.3, 0.62] as [number, number],
+    ring: 4.5, ringTime: 0.16, pull: { radius: 7.5, speed: 6.5, stopAt: 1.35, from: 0.5, to: 1.15 }, implodeRadius: 2.6 },
+} as const;
 
 export const ROLL = { invulnerable: [0.12, 0.45] as [number, number], cooldown: 0.8 };
 export const BUFFER = 0.15;          // attack input accepted this long before a chain window opens

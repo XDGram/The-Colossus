@@ -5,6 +5,7 @@ import { dressRunner } from './runner';
 import { BREAKER_SCALE, CLUB, dressBreaker } from './breaker';
 import { dressMentor, type HeadScan, type MentorRig } from '../player/mentor';
 import { Dresser, handMount, makeMaterials } from './kit';
+import { mergeStaticSiblings, skinRigidParts } from '../core/skinmerge';
 import { calibrateHand, wpos, wquat, type HandCal } from './ik';
 import { TwoHandGrip, type GripResult } from './twohand';
 import type { WeaponSample } from '../combat/hits';
@@ -58,8 +59,11 @@ export class Enemy<K extends EnemyKind = EnemyKind> {
   frozen = false;
   groundY = 0;
 
+  /** Geometry, materials and textures shared with the base model (and other enemies): never disposed here. */
+  private shared = new Set<object>();
   constructor(readonly kind: K, body: GLTF, anims: THREE.AnimationClip[], scan?: HeadScan) {
     this.cls = kind === 'runner' ? 'runner' : 'breaker';
+    body.scene.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh) { this.shared.add(m.geometry); for (const mt of [m.material].flat()) { this.shared.add(mt); for (const v of Object.values(mt)) if ((v as THREE.Texture)?.isTexture) this.shared.add(v); } } });
     this.model = clone(body.scene);
     if (kind === 'breaker') this.model.scale.setScalar(BREAKER_SCALE);
     this.object.add(this.pivot);
@@ -96,6 +100,9 @@ export class Enemy<K extends EnemyKind = EnemyKind> {
       this.grip = new TwoHandGrip(this.bones, this.cal, { tipLen: CLUB.tip, pommelLen: CLUB.pommel, headR: CLUB.headR, spacing: CLUB.spacing });
     }
     this.model.traverse((o) => { if ((o as THREE.Mesh).isMesh) { o.castShadow = o.receiveShadow = true; (o as THREE.Mesh).frustumCulled = false; } });
+    // Performance: costume and armour pieces become one skinned mesh per material (weapons stay separate).
+    skinRigidParts(this.model);
+    mergeStaticSiblings(this.model);
     for (const c of anims) this.clips.set(c.name, c);
     this.moves = kind === 'warden' ? WARDEN : this.cls === 'runner' ? RUNNER : BREAKER;
     this.mixer = new THREE.AnimationMixer(this.model);
@@ -223,6 +230,28 @@ export class Enemy<K extends EnemyKind = EnemyKind> {
     };
     if (this.blades) return [seg(this.blades.r, 0.07, 0.5, 0.03), seg(this.blades.l, 0.07, 0.5, 0.03)];
     return [seg(this.mount!, this.weaponSeg[0], this.weaponSeg[1], this.weaponSeg[2])];
+  }
+  /**
+   * Frees this enemy's own GPU resources (costume and weapon geometry, its materials and generated textures) once it
+   * has been removed for good (arena cleared on retry). Resources shared with the base model stay.
+   */
+  dispose() {
+    const seen = new Set<object>();
+    this.model.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh) return;
+      // Each skeleton owns a GPU texture of bone matrices.
+      const sk = (m as THREE.SkinnedMesh).skeleton;
+      if (sk && !seen.has(sk)) { seen.add(sk); sk.dispose(); }
+      if (!this.shared.has(m.geometry) && !seen.has(m.geometry)) { seen.add(m.geometry); m.geometry.dispose(); }
+      for (const mt of [m.material].flat()) {
+        if (this.shared.has(mt) || seen.has(mt)) continue;
+        seen.add(mt);
+        for (const v of Object.values(mt)) if ((v as THREE.Texture)?.isTexture && !this.shared.has(v) && !seen.has(v)) { seen.add(v); (v as THREE.Texture).dispose(); }
+        mt.dispose();
+      }
+    });
+    this.mixer.stopAllAction(); this.mixer.uncacheRoot(this.model);
   }
   /** Chest position (line-of-sight origin for hits). */
   chest() { return wpos(this.bones['spine_03']); }

@@ -1,3 +1,8 @@
+/** Supernatural abilities (docs/abilities.md). */
+export type SpiritKind = 'phantom' | 'rift' | 'rupture';
+/** Mobile spirit stance: after tapping SPIRIT, the next DODGE / ATTACK / BLOCK press casts an ability. */
+export const SPIRIT_STANCE = 2.2;
+
 /** Keyboard + mouse input. Mouse look uses pointer lock when available, or click-drag as a fallback. */
 export class Input {
   readonly keys = new Set<string>();
@@ -16,15 +21,25 @@ export class Input {
   private blockPressQ = 0;
   private blockMouse = false;
   private blockTouch = false;
+  // Abilities: Q / E / R on desktop; the SPIRIT stance on touch. E (or ATTACK in the stance) is held to charge the Rift.
+  private spiritQ: SpiritKind[] = [];
+  private riftKey = false; private riftTouch = false;
+  private stanceUntil = 0;
+  private spiritUi: { root: HTMLElement; spirit: HTMLElement; btns: Record<SpiritKind, HTMLElement>; labels: Map<HTMLElement, string> } | null = null;
 
   constructor(private el: HTMLElement) {
     addEventListener('keydown', (e) => {
       if (e.code === 'Space' && !e.repeat) this.dodgeQ++;
+      if (!e.repeat) {
+        if (e.code === 'KeyQ') this.spiritQ.push('phantom');
+        else if (e.code === 'KeyE') { this.spiritQ.push('rift'); this.riftKey = true; }
+        else if (e.code === 'KeyR') this.spiritQ.push('rupture');
+      }
       this.keys.add(e.code);
       if (['Space', 'ArrowUp', 'ArrowDown'].includes(e.code)) e.preventDefault();
     });
-    addEventListener('keyup', (e) => this.keys.delete(e.code));
-    addEventListener('blur', () => this.keys.clear());
+    addEventListener('keyup', (e) => { this.keys.delete(e.code); if (e.code === 'KeyE') this.riftKey = false; });
+    addEventListener('blur', () => { this.keys.clear(); this.riftKey = false; });
     el.addEventListener('mousedown', (e) => {
       this.dragging = true;
       if (e.button === 0) { this.attackQ++; this.attackDown = true; }
@@ -53,12 +68,26 @@ export class Input {
     // Combat buttons, added beside (not over) the joystick and RUN.
     const btn = (cls: string, label: string) => { const b = document.createElement('button'); b.className = `act ${cls}`; b.textContent = label; b.setAttribute('aria-label', label); ui.appendChild(b); return b; };
     const atk = btn('attack', 'ATTACK'), dodge = btn('dodge', 'DODGE'), block = btn('block', 'BLOCK');
-    const press = (b: HTMLElement, fn: () => void) => b.addEventListener('touchstart', (e) => { fn(); b.classList.add('on'); e.preventDefault(); e.stopPropagation(); }, { passive: false });
-    press(atk, () => { this.attackQ++; this.attackDown = true; });
-    press(dodge, () => this.dodgeQ++);
-    press(block, () => { this.blockTouch = true; this.blockPressQ++; });
+    // SPIRIT: one extra button above the cluster. Tapping it opens the spirit stance: for a moment the existing
+    // DODGE / ATTACK / BLOCK buttons cast Phantom Step / Colossus Rift (hold to charge) / Gravity Rupture instead.
+    // Their positions and sizes don't change; they get a cyan rim and new labels until the stance ends.
+    const spirit = document.createElement('button'); spirit.className = 'spirit'; spirit.setAttribute('aria-label', 'Spirit abilities');
+    spirit.innerHTML = '<svg viewBox="0 0 40 40" aria-hidden="true"><path d="M20 3 L23.5 16.5 L37 20 L23.5 23.5 L20 37 L16.5 23.5 L3 20 L16.5 16.5 Z"/></svg><span>SPIRIT</span><i class="ring"></i>';
+    spirit.style.display = 'none';   // shown once the game reports abilities (temple fight only)
+    ui.appendChild(spirit);
+    const labels = new Map<HTMLElement, string>([[atk, 'ATTACK'], [dodge, 'DODGE'], [block, 'BLOCK']]);
+    this.spiritUi = { root: ui, spirit, btns: { phantom: dodge, rift: atk, rupture: block }, labels };
+    spirit.addEventListener('touchstart', (e) => { this.setStance(!this.stance); e.preventDefault(); e.stopPropagation(); }, { passive: false });
+    const press = (b: HTMLElement, fn: () => void, kind: SpiritKind) => b.addEventListener('touchstart', (e) => {
+      if (this.stance) { this.spiritQ.push(kind); if (kind === 'rift') this.riftTouch = true; this.setStance(false); }
+      else fn();
+      b.classList.add('on'); e.preventDefault(); e.stopPropagation();
+    }, { passive: false });
+    press(atk, () => { this.attackQ++; this.attackDown = true; }, 'rift');
+    press(dodge, () => this.dodgeQ++, 'phantom');
+    press(block, () => { this.blockTouch = true; this.blockPressQ++; }, 'rupture');
     for (const b of [atk, dodge, block]) {
-      const up = (e: TouchEvent) => { b.classList.remove('on'); if (b === block) this.blockTouch = false; if (b === atk) this.attackDown = false; e.preventDefault(); e.stopPropagation(); };
+      const up = (e: TouchEvent) => { b.classList.remove('on'); if (b === block) this.blockTouch = false; if (b === atk) { this.attackDown = false; this.riftTouch = false; } e.preventDefault(); e.stopPropagation(); };
       b.addEventListener('touchend', up, { passive: false }); b.addEventListener('touchcancel', up, { passive: false });
     }
     const R = 52;
@@ -116,6 +145,39 @@ export class Input {
   }
   get sprint() { return this.keys.has('ShiftLeft') || this.keys.has('ShiftRight') || this.sprintHeld; }
   get walk() { return this.keys.has('ControlLeft') || this.keys.has('AltLeft') || this.keys.has('KeyC'); }
+
+  /** Spirit stance (touch): active until it times out, an ability is cast, or SPIRIT is tapped again. */
+  get stance() { return performance.now() < this.stanceUntil; }
+  setStance(on: boolean) {
+    this.stanceUntil = on ? performance.now() + SPIRIT_STANCE * 1000 : 0;
+    this.refreshStance();
+  }
+  private refreshStance() {
+    const u = this.spiritUi; if (!u) return;
+    const on = this.stance;
+    u.root.classList.toggle('stance', on); u.spirit.classList.toggle('on', on);
+    const names: Record<SpiritKind, string> = { phantom: 'STEP', rift: 'RIFT', rupture: 'RUPTURE' };
+    for (const k of Object.keys(u.btns) as SpiritKind[]) { const b = u.btns[k]; b.textContent = on ? names[k] : u.labels.get(b)!; b.classList.toggle('sp', on); }
+  }
+  /**
+   * Ability readiness for the touch UI (1 = ready, 0..1 = cooling down). Called by the game every frame; also ends a
+   * timed-out stance.
+   */
+  spiritStatus(ready: Record<SpiritKind, number>) {
+    const u = this.spiritUi; if (!u) return;
+    if (u.spirit.style.display) u.spirit.style.display = '';
+    if (u.root.classList.contains('stance') && !this.stance) this.refreshStance();
+    const any = Math.max(ready.phantom, ready.rift, ready.rupture);
+    u.spirit.style.setProperty('--k', any.toFixed(3));
+    u.spirit.classList.toggle('ready', ready.phantom >= 1 || ready.rift >= 1 || ready.rupture >= 1);
+    for (const k of Object.keys(u.btns) as SpiritKind[]) u.btns[k].classList.toggle('cool', this.stance && ready[k] < 1);
+  }
+  /** Next queued ability press, or null. */
+  consumeSpirit(): SpiritKind | null { return this.spiritQ.shift() ?? null; }
+  /** Rift charge input held (E, or ATTACK pressed in the spirit stance). */
+  get riftHeld() { return this.riftKey || this.riftTouch; }
+  /** Test hook: press / release an ability input. */
+  injectSpirit(k: SpiritKind | 'riftUp') { if (k === 'riftUp') { this.riftKey = false; this.riftTouch = false; } else { this.spiritQ.push(k); if (k === 'rift') this.riftKey = true; } }
 
   /** Number of attack presses since the last call (0 or more). */
   consumeAttack() { const n = this.attackQ; this.attackQ = 0; return n; }

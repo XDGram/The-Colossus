@@ -84,14 +84,20 @@ async function main() {
 
   ui.status.textContent = 'Unearthing the valley';
   const assets = new Assets(renderer, (p) => { pAssets = p; progress(); });
+  // Load only what the scene uses: the temple fight needs the hero tree, the character and the boulders, plus its own
+  // building textures; the valley's terrain, ruins, colossus, scatter and foliage assets stay on the server.
   await assets.load(
-    [
-      'tree_hero', 'ranger',
-      ...['rock_moss_set_01', 'rock_moss_set_02', 'boulder_01'].flatMap((m) => [m, `${m}_lod1`, `${m}_lod2`]),
-      ...['fern_02', 'root_cluster_01', 'tree_stump_01', 'dead_tree_trunk_02', 'dry_branches_medium_01'].flatMap((m) => [m, `${m}_lod1`]),
-    ],
-    ['ground037', 'grass004', 'ground067', 'rock051', 'rock030', 'rock064', 'bark014',
-      ...(sceneName === 'temple' ? ['ceramic_roof_01', 'brown_planks_07', 'clay_plaster', 'cobblestone_floor_03', 'wood_planks_grey'] : [])],
+    sceneName === 'temple'
+      // Boulders: only their far LODs. They stand 140 m+ from the courtyard, beyond the 60 m switch to LOD 0.
+      ? ['tree_hero', 'ranger', 'boulder_01_lod1', 'boulder_01_lod2']
+      : [
+        'tree_hero', 'ranger',
+        ...['rock_moss_set_01', 'rock_moss_set_02', 'boulder_01'].flatMap((m) => [m, `${m}_lod1`, `${m}_lod2`]),
+        ...['fern_02', 'root_cluster_01', 'tree_stump_01', 'dead_tree_trunk_02', 'dry_branches_medium_01'].flatMap((m) => [m, `${m}_lod1`]),
+      ],
+    sceneName === 'temple'
+      ? ['ceramic_roof_01', 'brown_planks_07', 'clay_plaster', 'cobblestone_floor_03', 'wood_planks_grey']
+      : ['ground037', 'grass004', 'ground067', 'rock051', 'rock030', 'rock064', 'bark014'],
   );
   const texLoader = new THREE.TextureLoader();
   const foliageTex = async (f: string) => {
@@ -100,7 +106,8 @@ async function main() {
     t.anisotropy = 4;
     return t;
   };
-  const [grassAtlas, flowerAtlas] = await Promise.all([foliageTex('grass_atlas.webp'), foliageTex('flowers.webp')]);
+  // Valley only (grass and flower cards).
+  const [grassAtlas, flowerAtlas] = sceneName === 'temple' ? [null, null] : await Promise.all([foliageTex('grass_atlas.webp'), foliageTex('flowers.webp')]);
 
   // ---- sky & light ----
   scene.background = atmo.background;
@@ -194,7 +201,7 @@ async function main() {
         const sc = 4 + rr() * 14;
         rocks.push(new THREE.Matrix4().compose(new THREE.Vector3(x, templeHeight(x, z) - sc * 0.45, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(rr() * 0.4, rr() * 6, rr() * 0.4)), new THREE.Vector3(sc, sc * 0.8, sc)));
       }
-      const l = new ScatterLayer(['boulder_01', 'boulder_01_lod1', 'boulder_01_lod2'].map((n) => partsOf(assets.models[n])), rocks, { maxDist: 2000, lodDist: [60, 300], castShadow: false, chunk: 120 });
+      const l = new ScatterLayer(['boulder_01_lod1', 'boulder_01_lod2'].map((n) => partsOf(assets.models[n])), rocks, { maxDist: 2000, lodDist: [300], castShadow: false, chunk: 120 });
       scene.add(l.group);
       templeLayers.push(l);
     }
@@ -271,8 +278,8 @@ async function main() {
     scene.add(l.group);
   }
   const foliageOpts = { sunDir: atmo.sunDir, sunColor: sun.color, alphaToCoverage: false };
-  const grass = new CardField(crossedCards(2), { ...foliageOpts, map: grassAtlas, slots: 4, radius: hq ? 60 : 38, density: hq ? 3.2 : 1.8, gen: grassGenerator(ruins.footprints), key: 'grass', wind: 0.35 });
-  const flowers = new CardField(flowerCard(), { ...foliageOpts, map: flowerAtlas, slots: 4, radius: hq ? 45 : 28, density: hq ? 0.9 : 0.5, gen: flowerGenerator(ruins.footprints), key: 'flowers', wind: 0.12 });
+  const grass = new CardField(crossedCards(2), { ...foliageOpts, map: grassAtlas!, slots: 4, radius: hq ? 60 : 38, density: hq ? 3.2 : 1.8, gen: grassGenerator(ruins.footprints), key: 'grass', wind: 0.35 });
+  const flowers = new CardField(flowerCard(), { ...foliageOpts, map: flowerAtlas!, slots: 4, radius: hq ? 45 : 28, density: hq ? 0.9 : 0.5, gen: flowerGenerator(ruins.footprints), key: 'flowers', wind: 0.12 });
   scene.add(grass.mesh, flowers.mesh);
   const birds = new Birds([{ x: COLOSSUS_POS.x, z: COLOSSUS_POS.z + 120, y: 230 }, { x: SITES.terrace.x, z: SITES.terrace.z, y: 70 }, { x: SITES.gate.x, z: SITES.gate.z - 80, y: 85 }]);
   scene.add(birds.mesh);
@@ -332,10 +339,12 @@ async function main() {
   }
   // Player combat kit (temple only; the valley keeps exploration-only controls).
   let combat: PlayerCombat | null = null;
+  let animLib: import('three/examples/jsm/loaders/GLTFLoader.js').GLTF | undefined;
   if (sceneName === 'temple') {
     const [{ PlayerCombat }, { GLTFLoader }, { MeshoptDecoder }] = await Promise.all([
       import('./player/combat'), import('three/examples/jsm/loaders/GLTFLoader.js'), import('three/examples/jsm/libs/meshopt_decoder.module.js')]);
     const lib = await new GLTFLoader().setMeshoptDecoder(MeshoptDecoder).loadAsync(`${import.meta.env.BASE_URL}assets/models/enemies.glb`);
+    animLib = lib;
     combat = new PlayerCombat(player, lib.animations);
   }
   // Shared hit detection (Stage 2A): the player is a target; the player's katana sweeps every frame of an active cut.
@@ -361,7 +370,8 @@ async function main() {
           return false;
         } },
       camera, player.position.clone(), player.facing, +(params.get('seed') || 1),
-      () => (mentor ? [{ base: mentor.object.position.clone(), radius: 0.42, bottom: 0.1, top: 1.85 }] : []));
+      () => (mentor ? [{ base: mentor.object.position.clone(), radius: 0.42, bottom: 0.1, top: 1.85 }] : []),
+      { lib: animLib, ranger: assets.models.ranger });
   }
   // The older warrior is now the Temple Warden (antagonist): in an arena that includes him, the friendly NPC is hidden.
   if (arena && mentor && /w\d/.test(params.get('combat') || '')) { mentor.object.visible = false; mentor.object.position.y -= 100; }
@@ -377,6 +387,9 @@ async function main() {
   }
   // Temple Warden boss services: pooled effects, spell hazards (through the combat loop), summons.
   let vfx: import('./fx/vfx').Vfx | null = null;
+  let abilities: import('./player/abilities').Abilities | null = null;
+  let spiritFx: import('./fx/spirit').SpiritFx | null = null;
+  let spiritHud: import('./ui/spirithud').SpiritHud | null = null;
   if (arena && combat && hitWorld && combatSystem) {
     const [{ Vfx }, { Spells }] = await Promise.all([import('./fx/vfx'), import('./boss/spells')]);
     vfx = await Vfx.load(import.meta.env.BASE_URL, scene, quality);
@@ -386,6 +399,21 @@ async function main() {
     const sound = (n: string, at?: THREE.Vector3) => audio.play(n as import('./audio/audio').SoundName, at);
     const spells = new Spells(hitWorld, vfx, { height: groundAt, blocks: (x, y, z) => colliders.blocks(x, y, z), player, push: (from, d) => combat!.pushFrom(from, d), sound });
     combatSystem.hazards = spells;
+    // Supernatural abilities (docs/abilities.md): Phantom Step, Colossus Rift, Gravity Rupture.
+    {
+      const [{ SpiritFx }, { Abilities }, { SpiritHud }] = await Promise.all([import('./fx/spirit'), import('./player/abilities'), import('./ui/spirithud')]);
+      const stone = assets.textures.cobblestone_floor_03;
+      spiritFx = new SpiritFx(scene, player.model, combat.blade.mount, quality, { map: stone?.color ?? null, normal: stone?.normal ?? null });
+      spiritFx.afterimages.build();
+      abilities = new Abilities({ player, combat, hits: hitWorld, brains: () => arena!.brains, vfx, fx: spiritFx, sound,
+        shake: (a, t) => tpc.shake(a, t), height: groundAt, blocks: (x, y, z) => colliders.blocks(x, y, z) });
+      combat.spirit = abilities;
+      combatSystem.abilities = abilities;
+      const ab = abilities;
+      combatSystem.onAbilityHit = (h, b, r) => ab.onHit(h, b, r);
+      spiritFx.debris.onLand = (p) => ab.debrisLanded(p);
+      if (!isTouch) spiritHud = new SpiritHud();
+    }
     const ar = arena;
     Object.assign(arena.bossCtx, {
       spells, vfx, sound,
@@ -438,6 +466,18 @@ async function main() {
   ui.bar.style.width = '100%'; { const pct = document.getElementById('pct'); if (pct) pct.textContent = '100%'; }
   ui.loader.classList.add('ready');
   ui.title.classList.add('show');
+  // Pooled effects (boss spells, abilities) are hidden until used. Their shaders compile in the background while the
+  // menu is up (the painted loading art covers the canvas), so the menu appears sooner and the first use in the fight
+  // doesn't hitch.
+  if (vfx || spiritFx) {
+    void (async () => {
+      await new Promise((r) => setTimeout(r, 600));
+      const mount = combat?.blade.mount;
+      vfx?.prewarm(true); spiritFx?.prewarm(true); if (mount) mount.visible = true;
+      try { await renderer.compileAsync(scene, camera); } catch { /* compiled on first use instead */ }
+      vfx?.prewarm(false); spiritFx?.prewarm(false); if (mount && combat) mount.visible = combat.drawn;
+    })();
+  }
   let started = false;
   const start = () => {
     if (started) return;
@@ -486,6 +526,7 @@ async function main() {
   let debugCam: [number[], [number, number, number]] | null = null;
   const update = (dt: number) => {
     t += dt;
+    abilities?.tick(dt);
     combat?.preUpdate(dt, input, tpc.yaw, started);
     player.update(dt, input, tpc.yaw, started);
     combat?.postUpdate(dt);
@@ -496,9 +537,11 @@ async function main() {
     }
     mentor?.update(dt);
     enemyShowcase?.update(dt);
-    arena?.update(dt, { position: player.position, facing: player.facing, radius: 0.38, attackKey: combat?.state === 'attack' ? `p${combat.attackInstance}` : null, mash: combat?.mashScore() ?? 0 });
+    arena?.update(dt, { position: player.position, facing: player.facing, radius: 0.38, attackKey: combat?.state === 'attack' ? `p${combat.attackInstance}` : null, mash: combat?.mashScore() ?? 0, ghost: abilities?.ghost ?? false });
     combatSystem?.update(dt);
     vfx?.update(dt);
+    spiritFx?.update(dt);
+    if (abilities) { const r = abilities.readiness(); input.spiritStatus(r); spiritHud?.update(r, started && combat?.state !== 'dead'); }
     if (started) encounter?.update(dt);
     if (debugCam) { camera.position.fromArray(debugCam[0]); camera.lookAt(...debugCam[1]); }
     else tpc.update(dt, input, player.position, Math.hypot(player.velocity.x, player.velocity.z));
@@ -515,7 +558,8 @@ async function main() {
   const tick = () => {
     const dt = Math.min(clock.getDelta(), 1 / 20);
     if (!paused) {
-      update(dt);
+      // Hit-stop: ability impacts briefly slow the world.
+      update(dt * (abilities?.timeScale(dt) ?? 1));
       renderer.info.reset();
       post.render();
     }
@@ -533,7 +577,7 @@ async function main() {
   // Hooks used by automated playtests and screenshot capture.
   Object.assign(window, {
     __tlc: {
-      ready: true, stats, start, player, mentor, enemies: () => enemyShowcase, combat: () => combat, hits: () => hitWorld, hitEvents, arena: () => arena, combatSystem: () => combatSystem, encounter: () => encounter, tpc, input, renderer, scene, camera, post,
+      ready: true, stats, start, player, mentor, abilities: () => abilities, spiritFx: () => spiritFx, vfx: () => vfx, enemies: () => enemyShowcase, combat: () => combat, hits: () => hitWorld, hitEvents, arena: () => arena, combatSystem: () => combatSystem, encounter: () => encounter, tpc, input, renderer, scene, camera, post,
       pause: (p: boolean) => { paused = p; renderer.domElement.style.visibility = p ? 'hidden' : 'visible'; },
       /** Deterministic capture for automated tests: simulate n frames, render once, return a JPEG data URL. */
       step: (n: number, dt = 1 / 30, capture = true) => {

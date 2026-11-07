@@ -164,6 +164,7 @@ export class WardenBrain extends EnemyBrain {
     if (!busy) { want.add(this.separation(me, others)); this.move(want, dt, player, 'guard'); }
     if (face !== null && !['dead', 'flinch', 'stagger', 'vanish'].includes(this.state)) this.turnTo(face, dt);
     if (this.state === 'attack' && this.e.move === 'roll') this.driveRoll();
+    if (this.state !== 'vanish') this.applyPull(dt); else this.pullVel.set(0, 0, 0);
     this.e.groundY = this.world.height(this.pos.x, this.pos.z);
     this.e.update(dt);
     if (this.state !== 'vanish') this.constrain(player, others);

@@ -23,6 +23,8 @@ export interface PlayerView {
   attackKey: string | null;
   /** Unchained Cut 1s in the last 3 s (anti-mash: raises a Runner's parry chance). */
   mash?: number;
+  /** Phantom Step: the player passes through bodies (enemy spacing does not push against the player). */
+  ghost?: boolean;
 }
 export interface WorldQuery {
   height(x: number, z: number): number;
@@ -69,6 +71,10 @@ export class EnemyBrain {
   /** Debug: last steering target (world). */
   readonly target = new THREE.Vector3();
   removed = false;
+  /** External pull (Gravity Rupture): horizontal velocity applied this frame on top of the brain's own movement. */
+  readonly pullVel = new THREE.Vector3();
+  /** How strongly pulls move this enemy (the armoured classes resist). */
+  get pullScale() { return this.e.kind === 'warden' ? 0.3 : this.e.cls === 'breaker' ? 0.55 : 1; }
 
   constructor(readonly e: Enemy, readonly id: string, protected director: AttackDirector, protected world: WorldQuery, protected rnd: () => number) {
     this.p = e.kind === 'runner' ? RUNNER : e.kind === 'warden' ? { ...BREAKER, radius: 0.42, hold: [1.2, 1.6] as [number, number], nativeWalk: 1.45 * 1.05 * 0.55, nativeJog: 1.45 * 1.05 * 0.55 } : BREAKER;
@@ -103,6 +109,8 @@ export class EnemyBrain {
     this.e.play((this.rnd() < 0.5 ? 'deathA' : 'deathB') as never, 0.15);
   }
 
+  /** Removed for good (arena cleared): take the warning glint out of the scene and free the body's resources. */
+  dispose() { this.cue.removeFromParent(); (this.cue.material as THREE.Material).dispose(); this.e.dispose(); }
   /** Open (punishable): in an attack's recovery window, or staggered. */
   isOpen() {
     if (this.state === 'stagger') return true;
@@ -215,6 +223,7 @@ export class EnemyBrain {
     }
     if (face !== null && !['attack', 'dead', 'dodge', 'flinch', 'stagger'].includes(this.state)) this.turnTo(face, dt);
     else if (face === null && !busy && want.lengthSq() > 0.05) this.turnTo(Math.atan2(want.x, want.z), dt);
+    this.applyPull(dt);
     this.e.groundY = this.world.height(this.pos.x, this.pos.z);
     this.e.update(dt);
     this.constrain(player, others);
@@ -353,7 +362,7 @@ export class EnemyBrain {
     // the normal spacing pushes him back out on the next frame. The Temple Warden keeps the normal spacing throughout.
     const charging = this.e.kind === 'breaker' && this.state === 'attack' && this.attack === 'charge' && this.e.move === 'charge'
       && this.e.time >= CHARGE_BODY.from && this.e.time <= CHARGE_BODY.to;
-    if (!charging) fix(player.position.x, player.position.z, player.radius + this.p.radius + 0.05);
+    if (!charging && !player.ghost) fix(player.position.x, player.position.z, player.radius + this.p.radius + 0.05);
     for (const o of others) if (o !== this && !o.dead) { const q = o.effective(); fix(q.x, q.z, o.p.radius + this.p.radius + 0.02); }
     const dx = x - eff.x, dz = z - eff.z;
     if (Math.abs(dx) + Math.abs(dz) > 1e-5) {
@@ -361,6 +370,14 @@ export class EnemyBrain {
       if (this.e.pivot.position.lengthSq() > 0) { this.pos.x += dx; this.pos.z += dz; }
       else { this.pos.x += dx; this.pos.z += dz; }
     }
+  }
+  /** Gravity Rupture pull: moves the body through the normal wall resolve (nobody is pulled into a wall). */
+  protected applyPull(dt: number) {
+    if (this.pullVel.lengthSq() > 1e-6 && !this.dead) {
+      const [nx, nz] = this.world.resolve(this.pos.x + this.pullVel.x * dt, this.pos.z + this.pullVel.z * dt, this.pos.y, this.p.radius);
+      this.pos.x = nx; this.pos.z = nz;
+    }
+    this.pullVel.set(0, 0, 0);
   }
   /** If trying to move but not getting anywhere for 1.5 s, flip the circling side and re-pick the radius. */
   protected unstick(dt: number, busy: boolean) {

@@ -37,6 +37,9 @@ export class ThirdPersonCamera {
   isIndoors: (() => boolean) | null = null;
 
   constructor(readonly camera: THREE.PerspectiveCamera) {}
+  // Impact feedback: a short decaying shake (abilities, heavy hits).
+  private shakeAmp = 0; private shakeT = 0; private shakeLen = 1; private shakeSeed = 0;
+  shake(amount: number, time: number) { if (amount >= this.shakeAmp * (1 - this.shakeT / this.shakeLen)) { this.shakeAmp = amount; this.shakeT = 0; this.shakeLen = time; this.shakeSeed = Math.random() * 100; } }
 
   setRig(rig: CameraRig) {
     this.rig = rig;
@@ -92,5 +95,11 @@ export class ThirdPersonCamera {
     pos.y = Math.max(pos.y, ground.height(pos.x, pos.z) + 0.3);
     this.camera.position.copy(pos);
     this.camera.lookAt(this.pivot.clone().addScaledVector(right, this.rig.shoulder).add(new THREE.Vector3(0, 0.05, 0)));
+    if (this.shakeT < this.shakeLen) {
+      this.shakeT += dt;
+      const k = Math.max(0, 1 - this.shakeT / this.shakeLen) ** 2, a = this.shakeAmp * k, s = this.shakeSeed + this.shakeT * 38;
+      this.camera.position.add(new THREE.Vector3(Math.sin(s * 1.3) * a, Math.sin(s * 1.7 + 1) * a, Math.sin(s * 1.1 + 2) * a * 0.5));
+      this.camera.rotateZ(Math.sin(s * 0.9) * a * 0.15);
+    }
   }
 }

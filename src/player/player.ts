@@ -5,6 +5,7 @@ import { ground } from '../world/ground';
 import type { Colliders } from '../world/colliders';
 import type { Input } from '../core/input';
 import { dressWarrior } from './armour';
+import { skinRigidParts } from '../core/skinmerge';
 
 const SPEED = { walk: 1.6, jog: 4.3, sprint: 7.2 };
 // Native ground speeds of the in-place clips, used to scale playback and avoid foot sliding.
@@ -30,6 +31,8 @@ export class Player {
     this.model = model;
     // Armour is built in the rest pose and parented to bones, before any animation runs.
     dressWarrior(model);
+    // Performance: armour plates become one skinned mesh per material (the sheathed hilt stays separate: it toggles).
+    skinRigidParts(model, (o) => o.name === 'katana-hilt');
     const seen = new Set<THREE.Material>();
     model.traverse((o) => {
       const m = o as THREE.SkinnedMesh;
@@ -105,7 +108,15 @@ export class Player {
         nz = this.position.z + this.velocity.z * dt;
       }
     }
-    [nx, nz] = this.colliders.resolve(nx, nz, this.position.y, RADIUS);
+    // Fast moves (Phantom Step travels 0.5–1.6 m per frame) are resolved in short steps so they can't tunnel through a
+    // thin wall; ordinary movement (under 0.4 m per frame, sprinting included) resolves in one step, as before.
+    const ddx = nx - this.position.x, ddz = nz - this.position.z, step = Math.hypot(ddx, ddz);
+    if (step > 0.4) {
+      const n = Math.ceil(step / 0.25);
+      let px = this.position.x, pz = this.position.z;
+      for (let i = 0; i < n; i++) [px, pz] = this.colliders.resolve(px + ddx / n, pz + ddz / n, this.position.y, RADIUS);
+      nx = px; nz = pz;
+    } else [nx, nz] = this.colliders.resolve(nx, nz, this.position.y, RADIUS);
     // Soft bounds of the explorable area.
     [nx, nz] = ground.clamp(nx, nz);
 

@@ -1,18 +1,35 @@
 import * as THREE from 'three';
 
-/** World-space posing helpers layered on top of an animated pose (call after the mixer updates). */
+/**
+ * World-space posing helpers layered on top of an animated pose (call after the mixer updates and a full
+ * updateMatrixWorld of the character, as Enemy.pose does).
+ *
+ * Performance: these run many times per character per frame. World matrices are read as they are (every helper
+ * refreshes what it changes), and a refresh updates the changed bone's subtree WITHOUT its meshes: nothing reads a
+ * mesh's world matrix while posing, and the renderer refreshes every mesh before drawing. The pose is identical;
+ * only redundant matrix work is skipped (previously each call re-walked all ancestors and re-multiplied every
+ * armour piece under the bone).
+ */
 const V = () => new THREE.Vector3();
+const _p = new THREE.Vector3(), _s = new THREE.Vector3(), _q = new THREE.Quaternion();
 export const wpos = (o: THREE.Object3D) => V().setFromMatrixPosition(o.matrixWorld);
-export const wquat = (o: THREE.Object3D) => o.getWorldQuaternion(new THREE.Quaternion());
+export const wquat = (o: THREE.Object3D) => { const q = new THREE.Quaternion(); o.matrixWorld.decompose(_p, q, _s); return q; };
+/** Recompute `o`'s world matrix and its descendants' (skipping meshes), from its parent's current world matrix. */
+export function refresh(o: THREE.Object3D) {
+  if (o.matrixAutoUpdate) o.updateMatrix();
+  if (o.parent) o.matrixWorld.multiplyMatrices(o.parent.matrixWorld, o.matrix); else o.matrixWorld.copy(o.matrix);
+  const ch = o.children;
+  for (let i = 0; i < ch.length; i++) if (!(ch[i] as THREE.Mesh).isMesh) refresh(ch[i]);
+}
 
 /** Sets a bone's world rotation (keeping its position). */
 export function setWorldQuat(bone: THREE.Object3D, q: THREE.Quaternion) {
   bone.quaternion.copy(wquat(bone.parent!).invert().multiply(q));
-  bone.updateMatrixWorld(true);
+  refresh(bone);
 }
 /** Rotates `bone` so the direction to `child` points at `target`. */
 export function aim(bone: THREE.Object3D, child: THREE.Object3D, target: THREE.Vector3) {
-  bone.updateMatrixWorld(true);
+  refresh(bone);
   const b = wpos(bone), c = wpos(child);
   const q = new THREE.Quaternion().setFromUnitVectors(c.sub(b).normalize(), target.clone().sub(b).normalize());
   setWorldQuat(bone, q.multiply(wquat(bone)));
@@ -20,12 +37,12 @@ export function aim(bone: THREE.Object3D, child: THREE.Object3D, target: THREE.V
 /** Adds a world-space rotation (axis, angle) to a bone on top of its current pose. */
 export function rotateWorld(bone: THREE.Object3D, axis: THREE.Vector3, angle: number) {
   if (Math.abs(angle) < 1e-5) return;
-  bone.updateMatrixWorld(true);
+  refresh(bone);
   setWorldQuat(bone, new THREE.Quaternion().setFromAxisAngle(axis, angle).multiply(wquat(bone)));
 }
 /** Two-bone IK (upper -> lower -> end) to put `end` at `target`, bending toward `pole`. Returns the stretch ratio. */
 export function twoBone(upper: THREE.Object3D, lower: THREE.Object3D, end: THREE.Object3D, target: THREE.Vector3, pole: THREE.Vector3) {
-  upper.updateMatrixWorld(true);
+  refresh(upper);
   const S = wpos(upper), L1 = S.distanceTo(wpos(lower)), L2 = wpos(lower).distanceTo(wpos(end));
   const toT = target.clone().sub(S);
   const want = toT.length();
@@ -72,7 +89,7 @@ export function gripAt(bones: Record<string, THREE.Bone>, side: 'l' | 'r', cal: 
   const hb = bones[`hand_${side}`], S = wpos(bones[`upperarm_${side}`]);
   const F = grip.clone().sub(S).normalize();
   const q = handQuat(cal, D, F);
-  const scale = hb.getWorldScale(V()).x;
+  hb.matrixWorld.decompose(_p, _q, _s); const scale = _s.x;
   const wrist = grip.clone().sub(cal.off.clone().multiplyScalar(scale).applyQuaternion(q));
   let stretch = twoBone(bones[`upperarm_${side}`], bones[`lowerarm_${side}`], hb, wrist, pole);
   // Out of reach: the shoulder reaches too (collarbone rotates up to ~17 deg toward the target).
@@ -100,7 +117,7 @@ export function dropPelvis(bones: Record<string, THREE.Bone>, dy: number, fwd: T
   const fq = { l: wquat(bones['foot_l']), r: wquat(bones['foot_r']) };
   const p = wpos(pelvis).add(new THREE.Vector3(0, dy, 0));
   pelvis.position.copy(pelvis.parent!.worldToLocal(p));
-  pelvis.updateMatrixWorld(true);
+  refresh(pelvis);
   for (const s of ['l', 'r'] as const) {
     const knee = wpos(bones[`calf_${s}`]).addScaledVector(fwd, 0.5);
     twoBone(bones[`thigh_${s}`], bones[`calf_${s}`], bones[`foot_${s}`], plant[s], knee);
