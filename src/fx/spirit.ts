@@ -433,7 +433,7 @@ void main() {
   float m = texture2D(uMap, vUv).r;
   float r = length(vUv - 0.5) * 2.0;
   float vis = smoothstep(uReveal, uReveal - 0.08, r) * smoothstep(1.0, 0.85, r);
-  if (uDark > 0.5) { gl_FragColor = vec4(0.04, 0.035, 0.03, m * vis * uAlpha * 0.75); return; }
+  if (uDark > 0.5) { float crater = smoothstep(0.35, 0.0, r) * 0.55; gl_FragColor = vec4(0.04, 0.035, 0.03, max(m * 0.9, crater) * vis * uAlpha); return; }
   float pulse = 0.85 + 0.3 * fbm(vec2(r * 6.0 - uTime * 2.0, 0.5));
   // Heat: 1 = white-hot spirit energy, cooling through cyan and deep blue to nothing.
   float k = clamp(uHeat * (0.92 - r * 0.45), 0.0, 0.9);
@@ -496,11 +496,14 @@ export class GroundMarks {
 // ------------------------------------------------------------------------------------------------ floating debris
 export class Debris {
   readonly mesh: THREE.InstancedMesh;
-  private parts: { p: THREE.Vector3; v: THREE.Vector3; rot: THREE.Euler; spin: THREE.Vector3; s: number; hover: number; ground: number; landed: boolean; live: boolean }[] = [];
+  private parts: { p: THREE.Vector3; v: THREE.Vector3; rot: THREE.Euler; spin: THREE.Vector3; s: number; hover: number; ground: number; landed: boolean; live: boolean; erupt: boolean; bounces: number; rest: number }[] = [];
+  /** How many of the pool are thrown out by the shattering ground (the rest rise and hover in the field). */
+  private eruptN: number;
   private m = new THREE.Matrix4(); private q = new THREE.Quaternion();
   private age = -1;
   onLand: ((p: THREE.Vector3) => void) | null = null;
-  constructor(scene: THREE.Scene, count: number, map: THREE.Texture | null, normal: THREE.Texture | null) {
+  constructor(scene: THREE.Scene, count: number, map: THREE.Texture | null, normal: THREE.Texture | null, erupt = 0) {
+    this.eruptN = erupt; count += erupt;
     // Broken paving chunks: a jittered low-poly stone, one instanced mesh (one draw call).
     const g = new THREE.DodecahedronGeometry(0.5, 0);
     const P = g.getAttribute('position'); let s = 3;
@@ -520,23 +523,36 @@ export class Debris {
     mat.customProgramCacheKey = () => 'spirit-debris';
     this.mesh = new THREE.InstancedMesh(g, mat, count);
     this.mesh.castShadow = true; this.mesh.frustumCulled = false; this.mesh.count = 0;
-    for (let i = 0; i < count; i++) this.parts.push({ p: new THREE.Vector3(), v: new THREE.Vector3(), rot: new THREE.Euler(), spin: new THREE.Vector3(), s: 1, hover: 0, ground: 0, landed: false, live: false });
+    for (let i = 0; i < count; i++) this.parts.push({ p: new THREE.Vector3(), v: new THREE.Vector3(), rot: new THREE.Euler(), spin: new THREE.Vector3(), s: 1, hover: 0, ground: 0, landed: false, live: false, erupt: i < erupt, bounces: 0, rest: 0 });
     scene.add(this.mesh);
   }
   /** Lift chunks around `c` (radius 1–`radius`), hover until `drop` seconds, then fall. */
   lift(c: THREE.Vector3, radius: number, height: (x: number, z: number) => number, drop: number) {
     this.age = 0; this.drop = drop;
     this.parts.forEach((d, i) => {
+      d.rot.set(Math.random() * 6, Math.random() * 6, Math.random() * 6);
+      d.landed = false; d.live = true; d.bounces = 0; d.rest = 0;
+      if (d.erupt) {
+        // Shattered paving: slabs burst out of the impact, flung outward and up; they bounce and settle.
+        const a = (i / this.eruptN) * Math.PI * 2 + Math.random() * 0.4, rr = 0.4 + Math.random() * 1.6, out = 2.5 + Math.random() * 4;
+        d.p.set(c.x + Math.sin(a) * rr, 0, c.z + Math.cos(a) * rr); d.ground = height(d.p.x, d.p.z); d.p.y = d.ground + 0.05;
+        d.v.set(Math.sin(a) * out, 4.5 + Math.random() * 4.5, Math.cos(a) * out);
+        d.spin.set((Math.random() - 0.5) * 14, (Math.random() - 0.5) * 8, (Math.random() - 0.5) * 14);
+        d.s = 0.16 + Math.random() * 0.3;
+        return;
+      }
       const a = (i / this.parts.length) * Math.PI * 2 + Math.random() * 0.5, rr = 1.0 + Math.random() * (radius - 1);
       d.p.set(c.x + Math.sin(a) * rr, 0, c.z + Math.cos(a) * rr); d.ground = height(d.p.x, d.p.z); d.p.y = d.ground;
       d.hover = d.ground + 0.6 + Math.random() * 1.5;
-      d.v.set(0, 0, 0); d.rot.set(Math.random() * 6, Math.random() * 6, Math.random() * 6);
+      d.v.set(0, 0, 0);
       d.spin.set((Math.random() - 0.5) * 3, (Math.random() - 0.5) * 3, (Math.random() - 0.5) * 3);
-      d.s = 0.24 + Math.random() * 0.3; d.landed = false; d.live = true;
+      d.s = 0.24 + Math.random() * 0.3;
     });
+    this.height = height;
     this.mesh.count = this.parts.length; this.mesh.visible = true;
   }
   private drop = 1;
+  private height: (x: number, z: number) => number = () => 0;
   get active() { return this.age >= 0; }
   update(dt: number) {
     if (this.age < 0) return;
@@ -547,7 +563,18 @@ export class Debris {
     let alive = 0;
     this.parts.forEach((d, i) => {
       if (!d.live) return;
-      if (a < this.drop) {
+      if (d.erupt) {
+        if (!d.landed) {
+          d.v.y -= 22 * dt; d.p.addScaledVector(d.v, dt);
+          d.rot.x += d.spin.x * dt; d.rot.y += d.spin.y * dt; d.rot.z += d.spin.z * dt;
+          const g = this.height(d.p.x, d.p.z) + d.s * 0.25;
+          if (d.p.y <= g && d.v.y < 0) {
+            d.p.y = g;
+            if (d.bounces++ < 1) { d.v.set(d.v.x * 0.45, -d.v.y * 0.3, d.v.z * 0.45); d.spin.multiplyScalar(0.4); this.onLand?.(d.p); }
+            else { d.landed = true; d.rest = a; }
+          }
+        } else if (a - d.rest > 1.6) { d.p.y -= dt * 0.25; if (a - d.rest > 2.6) d.live = false; }
+      } else if (a < this.drop) {
         // Rise fast out of the ground, then hover, bobbing and turning slowly (suspended by the field).
         const k = Math.min(1, a / 0.25), e = 1 - Math.pow(1 - k, 3);
         d.p.y = THREE.MathUtils.lerp(d.ground - 0.1, d.hover, e) + Math.sin(a * 3 + i) * 0.05 * e;
@@ -619,7 +646,7 @@ export class SpiritFx {
     for (let i = 0; i < 2; i++) this.crescents.push(new Crescent(scene, cg, hot));
     for (let i = 0; i < 3; i++) this.shocks.push(new Shock(scene, hot));
     this.marks = new GroundMarks(scene, quality, hot);
-    this.debris = new Debris(scene, quality === 'high' ? 18 : 9, stone.map, stone.normal);
+    this.debris = new Debris(scene, quality === 'high' ? 18 : 9, stone.map, stone.normal, quality === 'high' ? 16 : 9);
     this.aura = new BladeAura(bladeMount, hot);
     this.light = quality === 'high' ? new THREE.PointLight(0x5fd8ff, 0, 9, 2) : null;
     if (this.light) scene.add(this.light);

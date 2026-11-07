@@ -439,6 +439,8 @@ async function main() {
     // Retry after a defeat: the music starts again from the beginning.
     const retry = encounter.retry.bind(encounter);
     encounter.retry = () => { restartMusic(); retry(); };
+    tpc.snap(player.position);   // the opening starts the player just inside the gate
+    encounter.onShake = (a, t) => tpc.shake(a, t);
   }
   // Development showcase of the invaders (temple only, ?enemies): no AI or combat.
   let enemyShowcase: import('./enemies/showcase').EnemyShowcase | null = null;
@@ -531,8 +533,11 @@ async function main() {
   const update = (dt: number) => {
     t += dt;
     abilities?.tick(dt);
-    combat?.preUpdate(dt, input, tpc.yaw, started);
-    player.update(dt, input, tpc.yaw, started);
+    // Opening cinematic: the encounter walks the player in from the gate; input waits until the fight starts.
+    const cine = started ? encounter?.cinematic ?? null : null;
+    combat?.preUpdate(dt, input, tpc.yaw, started && !cine);
+    if (cine) { player.control.drive = cine.drive.clone(); player.control.lockMove = true; player.control.locomotion = 1; }
+    player.update(dt, input, tpc.yaw, started && !cine);
     combat?.postUpdate(dt);
     if (hitWorld && combat && !combatSystem) {
       hitWorld.beginFrame();

@@ -31,6 +31,7 @@ const CSS = `
 #hud .cap { position: absolute; left: 50%; top: 18%; transform: translateX(-50%); max-width: 80vw; text-align: center; font-family: Georgia, serif; font-size: clamp(16px, 2.4vw, 24px); text-shadow: 0 2px 6px #000; opacity: 0; transition: opacity 0.4s; }
 #hud .cap.show { opacity: 1; }
 #hud .cap b { display: block; font-family: Inter, sans-serif; font-size: 11px; letter-spacing: 0.22em; color: #c9a35b; margin-bottom: 6px; }
+#flash { position: fixed; inset: 0; background: #e8f0ff; opacity: 0; pointer-events: none; z-index: 6; transition: opacity 0.5s ease-out; }
 #endscreen { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; flex-direction: column; gap: 18px; background: rgba(6,6,6,0.72); z-index: 20; color: #ece6d8; font-family: Georgia, serif; text-align: center; padding: 16px; }
 #endscreen h2 { margin: 0; font-size: clamp(26px, 5vw, 44px); font-weight: normal; letter-spacing: 0.06em; }
 #endscreen p { margin: 0; opacity: 0.8; font-size: 15px; }
@@ -51,6 +52,16 @@ export class TempleEncounter {
   private endAt = -1;
   private wardenUpdate: EnemyBrain['update'] | null = null;
   private bossPhase = 1;
+  /**
+   * Opening cinematic (set while it plays): the game walks the player in from the gate (`drive`, m/s) and ignores
+   * input. Null once the fight has started.
+   */
+  cinematic: { drive: THREE.Vector3 } | null = null;
+  /** Camera shake hook (the thunderclap). */
+  onShake: ((amount: number, time: number) => void) | null = null;
+  private flash: HTMLElement;
+  private introDone = new Set<string>();
+  private pre: EnemyBrain[] = [];
 
   constructor(private arena: CombatArena, private system: CombatSystem, private combat: PlayerCombat, private player: Player,
     private camera: THREE.PerspectiveCamera, private home: { x: number; z: number; yaw: number }, private gate: THREE.Vector3) {
@@ -67,6 +78,7 @@ export class TempleEncounter {
     this.pbar = this.hud.querySelector('.pbar .fill')!; this.cap = this.hud.querySelector('.cap')!;
     this.boss = this.hud.querySelector('.boss')!; this.bossFill = this.boss.querySelector('.fill.red')!; this.meterFill = this.boss.querySelector('.fill.meter')!;
     this.end = document.createElement('div'); this.end.id = 'endscreen'; document.body.appendChild(this.end);
+    this.flash = document.createElement('div'); this.flash.id = 'flash'; document.body.appendChild(this.flash);
     this.startIntro();
   }
 
@@ -79,17 +91,55 @@ export class TempleEncounter {
     this.cap.classList.add('show'); this.capUntil = this.t + secs;
   }
 
+  /** Where the player starts the opening: just inside the sealed gate, walking in. */
+  static readonly INTRO_START = { x: 0, z: 45.8 };
   private startIntro() {
-    this.phase = 'intro'; this.t = 0;
-    // The Warden stands in the gateway, sword drawn, and speaks; then withdraws and sends his soldiers.
-    const p = new THREE.Vector3(0, 0, 30); // in front of the main hall, facing the player at the gate
+    this.phase = 'intro'; this.t = 0; this.introDone.clear(); this.pre = [];
+    // The player walks in through the gate; the Warden stands far up the courtyard, facing him.
+    const p = new THREE.Vector3(0, 0, 31.5);
     this.warden = this.arena.spawn('warden', p, this.faceHome(p));
     this.wardenUpdate = this.warden.update.bind(this.warden);
     const w = this.warden;
     w.update = (dt) => { w.e.update(dt); };
     w.e.play('guard' as never, 0);
     this.system.drop(w); // not a target during the confrontation
-    this.caption('THE TEMPLE WARDEN', '“This temple is ours now. You should not have returned.”', 4.5);
+    this.player.teleport(TempleEncounter.INTRO_START.x, TempleEncounter.INTRO_START.z); this.player.setFacing(this.home.yaw);
+    this.cinematic = { drive: new THREE.Vector3(Math.sin(this.home.yaw), 0, Math.cos(this.home.yaw)).multiplyScalar(1.6) };
+  }
+  /**
+   * The opening, timed from the moment the fight starts: walk in (0–3 s), the Warden speaks, lightning strikes him
+   * and he vanishes (3.6 s), his soldiers burst out of the smoke where he stood (4.0–4.8 s), the fight begins (5.2 s).
+   */
+  private updateIntro() {
+    const t = this.t, w = this.warden!, ctx = this.arena.bossCtx, once = (k: string) => (this.introDone.has(k) ? false : (this.introDone.add(k), true));
+    if (this.cinematic && t > 2.6) this.cinematic.drive.set(0, 0, 0);
+    if (t > 0.6 && once('speak')) this.caption('THE TEMPLE WARDEN', '“This temple is ours now. You should not have returned.”', 3.2);
+    const wp = w.e.object.position.clone();
+    if (t > 3.6 && once('strike')) {
+      // The storm answers him: a lightning strike, a white flash, thunder.
+      ctx.vfx?.bolt(wp, 22, 2.6); ctx.vfx?.bolt(wp.clone().add(new THREE.Vector3(0.5, 0, 0.3)), 20, 1.8);
+      ctx.vfx?.bolt(wp.clone().add(new THREE.Vector3(-0.6, 0, -0.2)), 18, 1.4);
+      ctx.vfx?.spawn('star_06', wp.clone().setY(wp.y + 1.2), { color: new THREE.Color(0.93, 0.88, 1.0), life: 0.35, size: 7, size1: 2, alpha: 1, rot: 0 });
+      ctx.vfx?.burst('smoke_07', wp.clone().setY(wp.y + 0.6), { count: 14, color: new THREE.Color(0.1, 0.08, 0.12), life: 1.4, size: 1.6, size1: 3.4, speed: 3, up: 0.6, alpha: 0.9, drag: 2 });
+      ctx.sound?.('thunder', wp); this.flashScreen();
+      this.onShake?.(0.12, 0.5);
+    }
+    if (t > 3.75 && once('vanish')) {
+      ctx.vfx?.puff(wp, false); ctx.sound?.('vanish', wp);
+      w.e.object.visible = false; w.e.object.position.y -= 50; w.update = () => {};
+    }
+    // His soldiers appear out of the smoke where he stood.
+    for (let i = 0; i < 3; i++) if (t > 4.0 + i * 0.35 && once(`summon${i}`)) {
+      const a = (i - 1) * 0.9, q = wp.clone().add(new THREE.Vector3(Math.sin(a) * 2.2, 0, Math.cos(a) * 2.2 + 1.2));
+      const b = this.arena.spawn('runner', q, this.faceHome(q));
+      ctx.vfx?.puff(b.e.object.position, true); ctx.sound?.('appear', q);
+      this.pre.push(b);
+    }
+    if (t > 5.2) { this.cinematic = null; this.startWave(1); }
+  }
+  private flashScreen() {
+    this.flash.style.transition = 'none'; this.flash.style.opacity = '0.85';
+    requestAnimationFrame(() => { this.flash.style.transition = 'opacity 0.6s ease-out'; this.flash.style.opacity = '0'; });
   }
   /** Spawn points: the main gate, and the covered corridors on both sides of the courtyard (enemies come out of the buildings). */
   private spots = {
@@ -102,7 +152,10 @@ export class TempleEncounter {
   private nextSpawn = 0;
   private spawned = 0;
   private spawnWave(list: { kind: 'runner' | 'breaker'; at: 'gate' | 'left' | 'right' }[]) {
-    this.wave = []; this.queue = [...list]; this.nextSpawn = this.t; this.spawned = 0;
+    // Soldiers summoned in the opening count toward the first wave (the queue sends that many fewer Runners).
+    this.wave = [...this.pre]; this.queue = [...list]; this.nextSpawn = this.t; this.spawned = 0;
+    for (let n = this.pre.length; n > 0; n--) { const i = this.queue.findIndex((q) => q.kind === 'runner'); if (i >= 0) this.queue.splice(i, 1); }
+    this.pre = [];
   }
   /** Enemies arrive one at a time (every 1.2 s), so the assault streams in. */
   private trickle() {
@@ -143,7 +196,7 @@ export class TempleEncounter {
 
   /** Clean restart after a defeat: same courtyard start, wave 1 again. */
   retry() {
-    this.end.style.display = 'none'; this.endAt = -1; this.bossPhase = 1;
+    this.end.style.display = 'none'; this.endAt = -1; this.bossPhase = 1; this.cinematic = null; this.pre = [];
     this.arena.bossCtx.spells?.clear();
     this.arena.clear(); this.warden = null; this.wave = [];
     this.boss.style.display = 'none';
@@ -173,12 +226,7 @@ export class TempleEncounter {
     if (this.t > this.capUntil) this.cap.classList.remove('show');
     const allDown = (bs: EnemyBrain[]) => bs.length > 0 && bs.every((b) => b.dead);
     switch (this.phase) {
-      case 'intro':
-        if (this.t > 4.5) {
-          const w = this.warden!; w.e.object.visible = false; w.e.object.position.y -= 50; w.update = () => {};
-          this.startWave(1);
-        }
-        break;
+      case 'intro': this.updateIntro(); break;
       case 'wave1': case 'wave2': case 'wave3': {
         this.trickle();
         if (!this.queue.length && allDown(this.wave)) {

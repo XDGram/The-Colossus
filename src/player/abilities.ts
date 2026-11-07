@@ -117,7 +117,9 @@ export class Abilities implements SpiritDriver, AbilitySource {
       // Wind-up of the big cut (blade raised behind), held while charging.
       this.d.combat.playClip('Sword_Regular_Combo', 0.1, 1.0, 0.3);
       this.d.sound('riftCharge', P.position);
-      P.setFacing(camYaw + Math.PI);
+      // Aim: lock onto the enemy in front of the player (if any), else straight where he faces.
+      this.riftTarget = this.lockOn(aim);
+      void camYaw;
     } else {
       this.center.copy(P.position).addScaledVector(this.facingDir(), 0.55);
       this.center.y = this.d.height(this.center.x, this.center.z);
@@ -202,8 +204,11 @@ export class Abilities implements SpiritDriver, AbilitySource {
     const blade = this.d.combat.blade;
     const tip = wpos(blade.tip), hilt = wpos(blade.hilt), mid = hilt.clone().lerp(tip, 0.55);
     if (this.released < 0) {
-      // Charging: aim with the camera; the blade gathers light.
-      const want = camYaw + Math.PI;
+      // Charging: turn toward the locked enemy (tracked while it moves) or keep facing; the blade gathers light.
+      void camYaw;
+      if (this.riftTarget && (this.riftTarget.dead || this.riftTarget.removed)) this.riftTarget = this.lockOn(this.facingDir());
+      const tp = this.riftTarget?.effective();
+      const want = tp ? Math.atan2(tp.x - P.position.x, tp.z - P.position.z) : P.facing;
       const f = P.facing + Math.atan2(Math.sin(want - P.facing), Math.cos(want - P.facing)) * (1 - Math.exp(-10 * dt));
       P.setFacing(f);
       this.charge = Math.min(1, this.t / A.fullCharge);
@@ -240,8 +245,31 @@ export class Abilities implements SpiritDriver, AbilitySource {
     return true;
   }
   private pool: ReturnType<Vfx['decal']> = null; private vortex: ReturnType<Vfx['decal']> = null;
+  private riftTarget: EnemyBrain | null = null;
+  /**
+   * Lock-on: the living enemy nearest to the aim line (within 60° of it and 16 m), preferring closer ones. The aim is
+   * the movement direction, or the player's facing when standing still.
+   */
+  private lockOn(aim: THREE.Vector3) {
+    const P = this.d.player.position, dir = aim.clone().setY(0);
+    if (dir.lengthSq() < 1e-6) dir.copy(this.facingDir()); dir.normalize();
+    let best: EnemyBrain | null = null, bestScore = Infinity;
+    for (const b of this.d.brains()) {
+      if (b.dead || b.removed || !b.e.object.visible) continue;
+      const to = b.effective().sub(P).setY(0), d = to.length();
+      if (d < 0.3 || d > 16) continue;
+      const ang = to.normalize().angleTo(dir);
+      if (ang > Math.PI / 3) continue;
+      const score = ang * 6 + d * 0.25;
+      if (score < bestScore) { bestScore = score; best = b; }
+    }
+    return best;
+  }
   private launch() {
     const A = ABILITY.rift, P = this.d.player, fx = this.d.fx, k = this.charge;
+    // Release straight at the locked enemy (a quick tap may not have finished turning).
+    const lt = this.riftTarget && !this.riftTarget.dead ? this.riftTarget.effective() : null;
+    if (lt) P.setFacing(Math.atan2(lt.x - P.position.x, lt.z - P.position.z));
     const dir = this.facingDir(), yaw = Math.atan2(dir.x, dir.z);
     const pos = P.position.clone().addScaledVector(dir, 0.9); pos.y = this.d.height(pos.x, pos.z) + A.height;
     const width = THREE.MathUtils.lerp(A.width[0], A.width[1], k), range = THREE.MathUtils.lerp(A.range[0], A.range[1], k);
@@ -419,6 +447,8 @@ export class Abilities implements SpiritDriver, AbilitySource {
   }
   /** Feedback for an ability hit (CombatSystem.onAbilityHit). */
   onHit(h: AbilityHit, b: EnemyBrain, r: PlayerHitResult) {
+    // Launched bodies kick up dust where they land.
+    if (!b.onLand) b.onLand = (p) => this.debrisLanded(p, true);
     if (r === 'none' || r === 'dodged') return;
     const c = b.e.chest();
     if (h.move === 'phantom') { this.passed.push(b); this.d.sound('spiritCut', c); this.stop = Math.max(this.stop, 0.035); this.d.shake(0.05, 0.12); return; }
@@ -430,7 +460,12 @@ export class Abilities implements SpiritDriver, AbilitySource {
   }
 
   /** Debris landing: a dust puff and a stone knock. */
-  debrisLanded(p: THREE.Vector3) {
+  debrisLanded(p: THREE.Vector3, body = false) {
+    if (body) {
+      this.d.vfx.burst('smoke_04', p.clone().setY(p.y + 0.1), { count: 6, color: C.dust, life: 0.7, size: 0.7, size1: 1.6, speed: 2.2, up: 0.4, alpha: 0.45, drag: 3, normal: true, flat: true });
+      this.d.sound('debris', p); this.d.shake(0.03, 0.12);
+      return;
+    }
     this.d.vfx.spawn('smoke_04', p, { color: C.dust, life: 0.6, size: 0.5, size1: 1.1, vel: new THREE.Vector3(0, 0.4, 0), alpha: 0.4, normal: true });
     if (Math.random() < 0.35) this.d.sound('debris', p);
   }

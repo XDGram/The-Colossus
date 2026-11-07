@@ -289,3 +289,13 @@ the SPIRIT stance — against live enemies: distances, pass-through, damage per 
 side misses, pull distances and stopping distance, Breaker resistance and meter, untouchable windows, cooldowns,
 interruption by an enemy hit, cancelling a cut's tail, cooldown reset on defeat, and the mobile stance (labels,
 mapping, the normal buttons outside the stance, time-out). `--shots <dir>` saves frames of each ability.
+
+### Revisions after playtest
+
+- **Colossus Rift aim:** locks onto the living enemy nearest the aim line (within 60° of the movement direction, or
+  of the player's facing when standing still, up to 16 m), turns to track it while charging and releases straight at
+  it. With no enemy in front it fires where the player faces. The camera direction no longer aims it.
+- **Gravity Rupture shatters the ground:** besides the hovering chunks, 16 (High) / 9 (Low) paving slabs burst out of
+  the impact, fly, bounce once and settle; a darker crater sits under the glowing cracks. Enemies caught by the ring
+  are launched (Runners 5.5 m/s up, Breakers ×0.45, the Warden ×0.2), fall under gravity, land with dust and a thud
+  and lie knocked down while the pull drags them in; the collapse knocks them down again.

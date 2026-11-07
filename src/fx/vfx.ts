@@ -225,14 +225,14 @@ export class Vfx {
     this.spawn('fire_01', pos, { color: FX_COLORS.fire, life: 0.18, size: 0.55, size1: 0.2, alpha: 1, spin: 6 });
   }
   /** Lightning strike: a tall flickering bolt, a white flash, sparks and a lingering scorch. */
-  bolt(ground: THREE.Vector3, height = 9) {
-    const mid = ground.clone().setY(ground.y + height / 2);
+  bolt(ground: THREE.Vector3, height = 9, scale = 1) {
+    const mid = ground.clone().setY(ground.y + height / 2), w = scale;
     // Narrow jagged bolt (Kenney spark_06 is a vertical lightning streak): a violet outer bolt and a white core.
-    this.spawn('spark_06', mid, { color: FX_COLORS.storm, life: 0.3, size: 0.9, stretch: height / 0.9, alpha: 1, alpha1: 0, rot: 0 });
-    this.spawn('spark_06', mid.clone().add(new THREE.Vector3(0.05, 0, 0)), { color: FX_COLORS.stormCore, life: 0.18, size: 0.45, stretch: height / 0.45, alpha: 1, alpha1: 0, rot: Math.PI });
-    this.spawn('circle_05', ground.clone().setY(ground.y + 0.4), { color: FX_COLORS.storm, life: 0.25, size: 2.6, size1: 1.2, alpha: 0.9 });
-    this.burst('spark_04', ground.clone().setY(ground.y + 0.2), { count: 14, color: FX_COLORS.storm, life: 0.35, size: 0.5, size1: 0.1, speed: 6, up: 2, grav: 9 });
-    this.decal('scorch_02', ground, { color: FX_COLORS.storm.clone().multiplyScalar(0.6), size: 2.6, life: 1.6, fadeIn: 0.02, fadeOut: 1.0 });
+    this.spawn('spark_06', mid, { color: FX_COLORS.storm, life: 0.3, size: 0.9 * w, stretch: height / (0.9 * w), alpha: 1, alpha1: 0, rot: 0 });
+    this.spawn('spark_06', mid.clone().add(new THREE.Vector3(0.05, 0, 0)), { color: FX_COLORS.stormCore, life: 0.18, size: 0.45 * w, stretch: height / (0.45 * w), alpha: 1, alpha1: 0, rot: Math.PI });
+    this.spawn('circle_05', ground.clone().setY(ground.y + 0.4), { color: FX_COLORS.storm, life: 0.25, size: 2.6 * w, size1: 1.2 * w, alpha: 0.9 });
+    this.burst('spark_04', ground.clone().setY(ground.y + 0.2), { count: Math.round(14 * w), color: FX_COLORS.storm, life: 0.35, size: 0.5 * w, size1: 0.1, speed: 6 * w, up: 2, grav: 9 });
+    this.decal('scorch_02', ground, { color: FX_COLORS.storm.clone().multiplyScalar(0.6), size: 2.6 * w, life: 1.6 * w, fadeIn: 0.02, fadeOut: 1.0 });
   }
   /** Teleport: dark smoke and violet sparks where he vanishes or reappears, with a bright flash on arrival. */
   puff(pos: THREE.Vector3, arrive: boolean) {

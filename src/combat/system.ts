@@ -3,7 +3,7 @@ import { HitWorld, BODY, WEAPON_RADIUS, type HitEvent } from './hits';
 import type { EnemyBrain } from './brain';
 import type { PlayerCombat } from '../player/combat';
 import type { Player } from '../player/player';
-import { HITSTUN_COOLDOWN, KNOCK_SCALE, REACTIONS } from './reactions';
+import { HITSTUN_COOLDOWN, KNOCK_SCALE, LIFT_SCALE, REACTIONS } from './reactions';
 import { BOSS, ENEMY_HITS, HEALTH, OPEN_METER, meterGain, playerDamage, PLAYER_MOVES, type EnemyHitDef, type PlayerMoveName } from './tables';
 
 /**
@@ -135,9 +135,11 @@ export class CombatSystem {
       b.kill(from); this.note('killed', b.id);
       // A killing blow throws the body (armoured classes less).
       b.impulse(from, rx.lean * 1.3, rx.twist, (rx.knock + 0.6) * kscale);
+      if (rx.lift) b.launch(rx.lift * LIFT_SCALE[b.e.kind === 'warden' ? 'warden' : b.e.cls]);
       return 'killed';
     }
     b.impulse(from, rx.lean, rx.twist, rx.knock * kscale);
+    if (rx.lift) b.launch(rx.lift * LIFT_SCALE[b.e.kind === 'warden' ? 'warden' : b.e.cls]);
     const m = PLAYER_MOVES[move];
     if (b.e.cls === 'runner') {
       // Every hit interrupts a Runner (he can't keep attacking while being cut). The weight of the attack picks the

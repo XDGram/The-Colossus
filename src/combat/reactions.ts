@@ -14,6 +14,7 @@ import type { PlayerMoveName } from './tables';
  * knock: metres of slide (Runner; armoured classes slide less); runner: the Runner's reaction.
  */
 export type RunnerReaction = 'flinch' | 'stagger' | 'knockdown';
+/** lift: launch speed upward (m/s) for the Runner; armoured classes are launched less (LIFT_SCALE). */
 export interface Reaction { lean: number; twist: number; knock: number; runner: RunnerReaction; lift?: number }
 
 export const REACTIONS: Record<PlayerMoveName, Reaction> = {
@@ -28,10 +29,13 @@ export const REACTIONS: Record<PlayerMoveName, Reaction> = {
   // Abilities.
   phantom: { lean: 0.35, twist: 1.1, knock: 0.6, runner: 'stagger' },
   rift: { lean: 0.75, twist: 0.2, knock: 2.6, runner: 'knockdown' },
-  rupture: { lean: 0.4, twist: 0.3, knock: 0, runner: 'stagger', lift: 0.25 },
-  implode: { lean: 0.7, twist: 0.4, knock: 1.6, runner: 'knockdown' },
+  // The ground shatters under them: launched into the air, slammed down, then dragged in by the pull.
+  rupture: { lean: 0.55, twist: 0.4, knock: 0, runner: 'knockdown', lift: 5.5 },
+  implode: { lean: 0.7, twist: 0.4, knock: 1.6, runner: 'knockdown', lift: 3 },
 };
 /** Slide multiplier for the armoured classes (heavy armour: they barely move, so a combo stays in reach). */
 export const KNOCK_SCALE = { runner: 1, breaker: 0.08, warden: 0.05 };
+/** Launch multiplier for the armoured classes (a Breaker only hops; the Warden barely leaves the ground). */
+export const LIFT_SCALE = { runner: 1, breaker: 0.45, warden: 0.2 };
 /** After a hit reaction a Runner waits this long before deciding to attack again (the player keeps the initiative). */
 export const HITSTUN_COOLDOWN = 0.6;

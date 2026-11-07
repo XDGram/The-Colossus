@@ -77,6 +77,12 @@ export class EnemyBrain {
   readonly pullVel = new THREE.Vector3();
   /** Knockback from a hit: a slide that decays (also while dying, so a killing blow throws the body). */
   readonly knockVel = new THREE.Vector3();
+  /** Airborne (launched by the Gravity Rupture): height above the ground and vertical speed, under gravity. */
+  airY = 0; airV = 0;
+  /** Called when a launched body lands (dust, sound). */
+  onLand: ((p: THREE.Vector3) => void) | null = null;
+  /** Throw the body up (m/s); it falls back under gravity (22 m/s²) and lands. */
+  launch(up: number) { if (up > this.airV) { this.airV = up; if (this.airY <= 0) this.airY = 0.001; } }
   /** How strongly pulls move this enemy (the armoured classes resist). */
   get pullScale() { return this.e.kind === 'warden' ? 0.3 : this.e.cls === 'breaker' ? 0.55 : 1; }
 
@@ -410,6 +416,13 @@ export class EnemyBrain {
       this.pos.x = nx; this.pos.z = nz;
     }
     this.pullVel.set(0, 0, 0);
+    if (this.airY > 0) {
+      this.airV -= 22 * dt; this.airY += this.airV * dt;
+      if (this.airY <= 0) { this.airY = 0; this.airV = 0; this.onLand?.(this.pos.clone()); }
+      this.pos.y = this.world.height(this.pos.x, this.pos.z) + this.airY;
+      // Airborne: the slide carries on (little ground friction until he lands).
+      if (this.airY > 0) return;
+    }
     this.knockVel.multiplyScalar(Math.exp(-7 * dt));
     if (this.knockVel.lengthSq() < 1e-4) this.knockVel.set(0, 0, 0);
   }
