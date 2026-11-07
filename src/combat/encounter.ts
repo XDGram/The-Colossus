@@ -158,8 +158,6 @@ export class TempleEncounter {
     const ease = (x: number) => { const k = THREE.MathUtils.clamp(x, 0, 1); return k * k * (3 - 2 * k); };
     const wp = new THREE.Vector3(0, w.e.object.position.y, 31.5), head = wp.clone().setY(wp.y + 1.62);
     if (once('open')) { this.doors?.solid(false); this.cineBars(true); }
-    // His line starts as the warrior reaches him, finishing before the lightning.
-    if (t > 4.4 && once('voice')) ctx.sound?.('w_intro');
     // Doors: open 0.2–1.7 s, shut 4.9–5.5 s (with a boom), solid again once shut.
     if (!this.introDone.has('doorsShut')) {
       const k = t < 4.9 ? ease((t - 0.2) / 1.5) : 1 - ease((t - 4.9) / 0.6);
@@ -271,7 +269,6 @@ export class TempleEncounter {
     const v = this.system.vitals.get(w); if (v) v.hp = this.wardenHp;
     this.boss.style.display = 'block';
     this.caption('THE TEMPLE WARDEN', '“Then I will finish this myself.”', 3.5);
-    this.arena.bossCtx.sound?.('w_finish');
     this.realmStage = 'none'; this.wardenT = 0;
     this.realm?.build();
   }
@@ -320,7 +317,6 @@ export class TempleEncounter {
             this.visited.add(4); this.raid = false; this.returnPos.copy(P); this.entryHp = this.hp(w);
             this.beginTrans('in');
             this.caption('THE TEMPLE WARDEN', '“Let me show you where this ends.”', 2.5);
-            this.arena.bossCtx.sound?.('w_final');
             this.arena.bossCtx.sound?.('stormCall', w.effective());
           }
         } else if (!this.queue.length && alive >= 2 && alive <= 4) {
@@ -328,7 +324,6 @@ export class TempleEncounter {
           this.arrive(w);
           this.realmStage = 'arrive'; this.realmT = 0;
           this.caption('THE TEMPLE WARDEN', TempleEncounter.RAID_LINES[n - 1], 3);
-          this.arena.bossCtx.sound?.(`w_raid${n}`);
         }
         break;
       }
@@ -583,8 +578,8 @@ export class TempleEncounter {
       const ph = (this.warden as WardenBrain).phase ?? 1;
       if (ph !== this.bossPhase) {
         this.bossPhase = ph;
-        if (ph === 2) { this.caption('THE TEMPLE WARDEN', '“Burn, then.” His blade catches fire.', 3); this.arena.bossCtx.sound?.('w_burn'); }
-        if (ph === 3) { this.caption('THE TEMPLE WARDEN', '“The storm answers me.”', 3); this.arena.bossCtx.sound?.('w_storm'); }
+        if (ph === 2) this.caption('THE TEMPLE WARDEN', '“Burn, then.” His blade catches fire.', 3);
+        if (ph === 3) this.caption('THE TEMPLE WARDEN', '“The storm answers me.”', 3);
       }
     }
   }

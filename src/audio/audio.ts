@@ -11,12 +11,8 @@ export type SoundName = 'tell' | 'whoosh' | 'vanish' | 'appear' | 'fireCharge' |
   // Player abilities (docs/abilities.md).
   | 'spiritDash' | 'spiritAppear' | 'spiritCut' | 'riftCharge' | 'riftRelease' | 'riftHit' | 'ruptureCharge' | 'ruptureBoom' | 'ruptureQuake' | 'debris'
   // Enemy battle cries (attack warnings from off screen) and the realm transition (storm wind, rising rumble).
-  | 'cry' | 'cry2' | 'wind' | 'riser'
-  // The Temple Warden's voice lines (synthesised from the CC0 "Joe" Piper voice, deepened; see ASSET_CREDITS.md).
-  | VoiceLine;
-export type VoiceLine = 'w_intro' | 'w_finish' | 'w_raid1' | 'w_raid2' | 'w_raid3' | 'w_final' | 'w_burn' | 'w_storm';
-export const VOICE: VoiceLine[] = ['w_intro', 'w_finish', 'w_raid1', 'w_raid2', 'w_raid3', 'w_final', 'w_burn', 'w_storm'];
-const FILES: SoundName[] = [...VOICE, 'cry', 'cry2', 'wind', 'riser', 'tell', 'whoosh', 'vanish', 'appear', 'fireCharge', 'fireWave', 'fireball', 'flame', 'stormCall', 'stormMark', 'thunder', 'roar',
+  | 'cry' | 'cry2' | 'wind' | 'riser';
+const FILES: SoundName[] = ['cry', 'cry2', 'wind', 'riser', 'tell', 'whoosh', 'vanish', 'appear', 'fireCharge', 'fireWave', 'fireball', 'flame', 'stormCall', 'stormMark', 'thunder', 'roar',
   'spiritDash', 'spiritAppear', 'spiritCut', 'riftCharge', 'riftRelease', 'riftHit', 'ruptureCharge', 'ruptureBoom', 'ruptureQuake', 'debris'];
 /** Per-sound mix level and overlap limits. */
 const MIX: Partial<Record<SoundName, { gain?: number; max?: number; gap?: number }>> = {
@@ -25,8 +21,6 @@ const MIX: Partial<Record<SoundName, { gain?: number; max?: number; gap?: number
   spiritDash: { gain: 1.0 }, spiritAppear: { gain: 0.8 }, spiritCut: { gain: 0.85, max: 4, gap: 0.03 }, riftCharge: { gain: 0.75 }, riftRelease: { gain: 0.95 },
   riftHit: { gain: 0.8, max: 4, gap: 0.04 }, ruptureCharge: { gain: 0.8 }, ruptureBoom: { gain: 1.0 }, ruptureQuake: { gain: 0.7 }, debris: { gain: 0.5, max: 3, gap: 0.08 },
   cry: { gain: 0.75, max: 2, gap: 0.25 }, cry2: { gain: 0.75, max: 2, gap: 0.25 }, wind: { gain: 1.0, max: 1 }, riser: { gain: 0.6, max: 1 },
-  // The Warden's voice sits clearly above the music and effects (the music also dips while he speaks).
-  ...Object.fromEntries(VOICE.map((v) => [v, { gain: 1.6, max: 1, gap: 0.5 }])),
 };
 
 export class GameAudio {
@@ -51,7 +45,7 @@ export class GameAudio {
     const AC = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     if (!AC) return;
     this.ctx = new AC(); this.master = this.ctx.createGain(); this.master.gain.value = this.volume;
-    // A gentle limiter on the mix, so a loud voice line over effects never distorts.
+    // A gentle limiter on the mix, so stacked effects never distort.
     const lim = this.ctx.createDynamicsCompressor();
     lim.threshold.value = -6; lim.knee.value = 6; lim.ratio.value = 12; lim.attack.value = 0.003; lim.release.value = 0.15;
     this.master.connect(lim).connect(this.ctx.destination);
@@ -101,7 +95,7 @@ export class GameAudio {
       pan = THREE.MathUtils.clamp(rel.x / Math.max(2, Math.abs(rel.z)), -0.8, 0.8);
     }
     const src = ctx.createBufferSource(); src.buffer = buf;
-    src.playbackRate.value = name.startsWith('w_') ? 1 : 0.96 + Math.random() * 0.08;  // slight variation on repeats (not speech)
+    src.playbackRate.value = 0.96 + Math.random() * 0.08;  // slight variation on repeats
     const g = ctx.createGain(); g.gain.value = gain;
     const p = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
     if (p) { p.pan.value = pan; src.connect(g).connect(p).connect(this.master); } else src.connect(g).connect(this.master);

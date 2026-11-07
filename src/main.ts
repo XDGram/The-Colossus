@@ -63,17 +63,6 @@ const fadeMusic = (dt: number) => {
   musicVol(music, MUSIC_VOL * (v ? 1 - k : k)); musicVol(valleyMusic, VALLEY_VOL * (v ? k : 1 - k));
   if (k >= 1) { if (v) music.pause(); else valleyMusic.pause(); }
 };
-/**
- * The music keeps playing under the Warden's voice but dips to 60% while he speaks (until this time, ms), easing
- * down in about 0.2 s and back up in about 0.6 s.
- */
-let duckUntil = 0, duckLevel = 1;
-const duckMusic = (dt: number) => {
-  const want = performance.now() < duckUntil ? 0.6 : 1;
-  duckLevel += (want - duckLevel) * Math.min(1, dt * (want < duckLevel ? 12 : 4));
-  if (musicFade < 1.4) return;
-  if (musicMode === 'valley') musicVol(valleyMusic, VALLEY_VOL * duckLevel); else musicVol(music, MUSIC_VOL * duckLevel);
-};
 const restartMusic = () => { musicMode = 'temple'; musicFade = 9; valleyMusic.pause(); musicVol(music, MUSIC_VOL); music.currentTime = 0; playMusic(); };
 playMusic();
 for (const ev of ['pointerdown', 'keydown', 'touchstart']) addEventListener(ev, () => {
@@ -358,16 +347,7 @@ async function main() {
     // Both music tracks go through the mixer (volume control on every device, including iPhone).
     audio.attachMusic(music); audio.attachMusic(valleyMusic);
     musicVol = (el, v) => audio.setVolume(el, v);
-    Object.assign(window, { __audio: { audio, say: (n: string) => sound(n) } });   // test hook
-    const sound = (n: string, at?: THREE.Vector3) => {
-      // The Warden speaks: his voice is never positional, and the music dips under it.
-      if (n.startsWith('w_')) {
-        const name = n as import('./audio/audio').SoundName;
-        duckUntil = performance.now() + ((audio.duration(name) || 3) + 0.35) * 1000;
-        audio.play(name); return;
-      }
-      audio.play(n as import('./audio/audio').SoundName, at);
-    };
+    const sound = (n: string, at?: THREE.Vector3) => audio.play(n as import('./audio/audio').SoundName, at);
     const spells = new Spells(hitWorld, vfx, { height: groundAt, blocks: (x, y, z) => colliders.blocks(x, y, z), player, push: (from, d) => combat!.pushFrom(from, d), sound });
     combatSystem.hazards = spells;
     {
@@ -568,7 +548,7 @@ async function main() {
   let debugCam: [number[], [number, number, number]] | null = null;
   const update = (dt: number) => {
     t += dt;
-    fadeMusic(dt); duckMusic(dt);
+    fadeMusic(dt);
     abilities?.tick(dt);
     // Opening cinematic: the encounter walks the player in from the gate; input waits until the fight starts.
     const cine = started ? encounter?.cinematic ?? null : null;
