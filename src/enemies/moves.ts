@@ -34,7 +34,7 @@ export interface MoveDef {
 export type RunnerMove = 'idle' | 'walk' | 'jog' | 'sprint' | 'slash' | 'slash2' | 'flurry' | 'finisher' | 'lunge' | 'pommel'
   | 'spin' | 'parry' | 'roll' | 'hop' | 'stepL' | 'stepR' | 'flinchChest' | 'flinchHead' | 'knockdown' | 'deathA' | 'deathB' | 'kunai';
 export type BreakerMove = 'idle' | 'walk' | 'guard' | 'sweep' | 'smash' | 'charge' | 'guardBreak' | 'shudder' | 'stamp'
-  | 'stagger' | 'deathA' | 'deathB';
+  | 'stagger' | 'deathA' | 'deathB' | 'jolt' | 'stumble' | 'reel' | 'kneel';
 
 export const RUNNER: Record<RunnerMove, MoveDef> = {
   idle: { segs: [{ clip: 'Sword_Idle' }], loop: true, layer: 'runnerReady' },
@@ -78,8 +78,14 @@ export const BREAKER: Record<BreakerMove, MoveDef> = {
   charge: { segs: [{ clip: 'Shield_Dash' }], club: 'carry', layer: 'breakerCharge', hits: [{ t: 0.35, window: 0.3, reach: 1.0, arc: 70, damage: 18 }], openFrom: 0.75, recovery: 1.1 },
   guardBreak: { segs: [{ clip: 'Idle_Shield_Break' }], club: 'guard' },
   shudder: { segs: [{ clip: 'Hit_Chest' }], under: 'Idle_Shield_Loop', weight: 0.35, club: 'guard' },
+  // Giant hit reactions (heavier than a Runner's): a shoulder jolt for light cuts, a stumble back for heavy hits,
+  // a long reel for the leap slam and the Rift, a brief drop to one knee for the Gravity Rupture.
+  jolt: { segs: [{ clip: 'Hit_Chest' }], under: 'Idle_Shield_Loop', weight: 0.7, speed: 1.15, club: 'guard' },
+  stumble: { segs: [{ clip: 'Hit_Chest' }], speed: 0.7, club: 'guard', openFrom: 0.05, recovery: 0.8 },
+  reel: { segs: [{ clip: 'Hit_Head' }], speed: 0.5, club: 'guard', openFrom: 0.05, recovery: 1.1 },
   stamp: { segs: [{ clip: 'Idle_Shield_Loop' }], duration: 1.4, club: 'guard', layer: 'breakerStamp', hits: [{ t: 0.75, window: 0.08, reach: 2.2, arc: 360, damage: 10 }], openFrom: 0.85, recovery: 0.8 },
   stagger: { segs: [{ clip: 'Idle_Shield_Loop' }], duration: 2.2, club: 'lean', layer: 'breakerStagger', openFrom: 0.15, recovery: 2.0 },
+  kneel: { segs: [{ clip: 'Idle_Shield_Loop' }], duration: 1.4, club: 'lean', layer: 'breakerStagger', openFrom: 0.15, recovery: 1.2 },
   deathA: { segs: [{ clip: 'Death01' }], club: 'none', hold: true },
   deathB: { segs: [{ clip: 'Idle_Shield_Loop' }], duration: 2.8, club: 'lean', layer: 'breakerDeathB', hold: true },
 };

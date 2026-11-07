@@ -881,14 +881,18 @@ if (want('stage2b')) {
       // (debug camera straight up at the sky: every warning point is off-screen.)
       H.placePlayer(0, 44, Math.PI); H.g.debugCam([0, 1.7, 44], [0, 60, 44.01]); H.step(1);
       const n0 = H.A.director.starts.length, before = H.A.brains.map((b) => b.state);
-      for (let f = 0; f < 300; f++) { H.step(1); if (f % 60 === 0) H.C.hp = 100; }
-      const startedHidden = H.A.director.starts.length - n0; H.g.debugCam(null);
+      // Revised rule: unseen attacks may start, one at a time and at least 1.1 s apart (each announced by a cry).
+      let maxUnseen = 0, cues = 0; const prevCue = H.A.director.onOffscreen; H.A.director.onOffscreen = (id) => { cues++; prevCue?.(id); };
+      for (let f = 0; f < 300; f++) { H.step(1); if (f % 60 === 0) H.C.hp = 100; maxUnseen = Math.max(maxUnseen, H.A.brains.filter((b) => H.A.director.unseen(b.id)).length); }
+      H.A.director.onOffscreen = prevCue;
+      const hs = H.A.director.starts.slice(n0).map((x) => x[0]), gaps = hs.slice(1).map((x, i) => x - hs[i]);
+      const startedHidden = hs.length, minGap = gaps.length ? Math.min(...gaps) : 99; H.g.debugCam(null);
       // Wall gate: the director's visibility check for a point just behind the solid wall at z 47.62.
       H.placePlayer(0, 44, 0); H.g.tpc.yaw = Math.PI; H.step(2);
       // Bodies also block warnings (tested elsewhere); move the enemies out of this line so only the wall is tested.
       H.A.brains.forEach((b, i) => b.e.object.position.set(-8 - i * 2, b.e.object.position.y, 30));
       const behindWall = H.A.director.visible([{ x: 0, y: 1.3, z: 49.0 }], 'probe'), inOpen = H.A.director.visible([{ x: 0, y: 1.3, z: 46.5 }], 'probe');
-      return { runnerMed: med(rd), runnerIn: pct(rd, 3, 5), runnerN: rd.length, brkMed: med(bd), brkIn: pct(bd, 1.95, 2.55), brkN: bd.length, brkSpeedMax: bs.length ? Math.max(...bs) : null, brkSpeedMed: med(bs), startedHidden, behindWall, inOpen, before };
+      return { runnerMed: med(rd), runnerIn: pct(rd, 3, 5), runnerN: rd.length, brkMed: med(bd), brkIn: pct(bd, 1.95, 2.55), brkN: bd.length, brkSpeedMax: bs.length ? Math.max(...bs) : null, brkSpeedMed: med(bs), startedHidden, maxUnseen, minGap, cues, behindWall, inOpen, before };
     });
     check('Runners press in to a 1.8–2.6 m ring', bh.runnerN > 0 && bh.runnerMed >= DOC.behaviour.runnerRing[0] - 0.3 && bh.runnerMed <= DOC.behaviour.runnerRing[1] + 0.3, `median ${f2(bh.runnerMed)} m over ${bh.runnerN} samples`);
     check('Breaker holds 2.0–2.5 m (±0.05 m)', bh.brkN > 0 && bh.brkMed >= 1.95 && bh.brkMed <= 2.55 && bh.brkIn >= 0.8, `median ${bh.brkMed?.toFixed(3)} m, ${Math.round((bh.brkIn ?? 0) * 100)}% of ${bh.brkN} samples inside 1.95–2.55 m`);
@@ -901,7 +905,7 @@ if (want('stage2b')) {
       return H.dist(b);
     });
     check('Breaker starting at 1.8 m settles inside 2.0–2.5 m', bc >= 1.95 && bc <= 2.55, `settled at ${bc.toFixed(3)} m after 4 s`);
-    check('No attack starts while every warning is off-screen (camera turned away, 5 s)', bh.startedHidden === 0, `${bh.startedHidden} starts`);
+    check('Unseen attacks still come (camera turned away, 5 s): one at a time, ≥ 1.1 s apart, each with a cue', bh.startedHidden >= 1 && bh.maxUnseen <= 1 && bh.minGap >= 1.05 && bh.cues === bh.startedHidden, `${bh.startedHidden} starts, max ${bh.maxUnseen} unseen at once, min gap ${f2(bh.minGap)} s, ${bh.cues} cues`);
     check('A warning behind a wall is not visible; the same in the open is', bh.behindWall === false && bh.inOpen === true, `behind wall ${bh.behindWall}, open ${bh.inOpen}`);
   }
   await p.close();

@@ -329,6 +329,8 @@ async function main() {
     // Enemies spawned later (the Warden's summon) join the combat loop; the encounter replaces this with its own.
     arena.onSpawn = (b) => combatSystem!.add(b);
   }
+  // Attacks that start off screen: a battle cry from the attacker's direction and a screen-edge marker.
+  let threats: import('./ui/threat').ThreatMarkers | null = null;
   // Temple Warden boss services: pooled effects, spell hazards (through the combat loop), summons.
   let vfx: import('./fx/vfx').Vfx | null = null;
   let abilities: import('./player/abilities').Abilities | null = null;
@@ -343,6 +345,15 @@ async function main() {
     const sound = (n: string, at?: THREE.Vector3) => audio.play(n as import('./audio/audio').SoundName, at);
     const spells = new Spells(hitWorld, vfx, { height: groundAt, blocks: (x, y, z) => colliders.blocks(x, y, z), player, push: (from, d) => combat!.pushFrom(from, d), sound });
     combatSystem.hazards = spells;
+    {
+      const { ThreatMarkers } = await import('./ui/threat');
+      const tm = threats = new ThreatMarkers(camera), ar = arena;
+      ar.director.onOffscreen = (id) => {
+        const b = ar.brains.find((x) => x.id === id); if (!b) return;
+        sound(b.e.cls === 'breaker' || Math.random() < 0.5 ? 'cry2' : 'cry', b.effective());
+        tm.add(() => (!b.dead && (b.state === 'tell' || b.state === 'attack') ? b.e.chest() : null), () => b.unparryable);
+      };
+    }
     // The Ash Runners' power: thrown kunai, flown and swept by the spell system.
     const { POWERS } = await import('./combat/brain');
     POWERS.kunai = (b, from, at) => spells.kunai(b, from, at);
@@ -400,6 +411,7 @@ async function main() {
   let encounter: import('./combat/encounter').TempleEncounter | null = null;
   let realm: import('./world/realm').WardenRealm | null = null;
   let glitchLevel = 0;
+  let postRef: import('./core/post').Post | null = null;
   if (encounterMode && arena && combatSystem) {
     const { TempleEncounter } = await import('./combat/encounter');
     encounter = new TempleEncounter(arena, combatSystem, combat!, player, camera,
@@ -423,6 +435,9 @@ async function main() {
         get ready() { return rm.ready; }, get active() { return rm.active; },
         enter: () => rm.enter(), exit: () => rm.exit(),
         glitch: (v) => { glitchLevel = v; }, music: setMusic,
+        capture: (impact, aspect) => postRef?.shatter.capture(impact, aspect),
+        crack: (v) => { if (postRef) postRef.shatter.crack = v; }, fall: (v) => { if (postRef) postRef.shatter.fall = v; },
+        hideShatter: () => postRef?.shatter.hide(),
       };
     }
   }
@@ -439,6 +454,7 @@ async function main() {
   await frame();
   const updateWorld = (t: number) => (realm?.active ? realm.update(t, camera.position, player.position) : worldUpdate(t, camera.position, player.position));
   const post = new Post(renderer, scene, camera, quality, atmo.sunDir);
+  postRef = post;
   if (sceneName === 'temple') {
     post.rays.uniforms.uIntensity.value = 0.3;
     if (post.bloom) { post.bloom.strength = 0.22; post.bloom.threshold = 0.95; }
@@ -527,6 +543,7 @@ async function main() {
   const stats = { fps: 0, calls: 0, tris: 0 };
 
   let paused = false;
+  let idleT = 0;
   let cineFrom: [THREE.Vector3, THREE.Quaternion] | null = null;
   let debugCam: [number[], [number, number, number]] | null = null;
   const update = (dt: number) => {
@@ -548,7 +565,12 @@ async function main() {
     }
     mentor?.update(dt);
     enemyShowcase?.update(dt);
-    arena?.update(dt, { position: player.position, facing: player.facing, radius: 0.38, attackKey: combat?.state === 'attack' ? `p${combat.attackInstance}` : null, mash: combat?.mashScore() ?? 0, ghost: abilities?.ghost ?? false });
+    // How long the player has waited (standing still, not attacking): the enemies punish it.
+    const still = Math.hypot(player.velocity.x, player.velocity.z) < 0.4 && (combat?.state === 'free' || combat?.state === 'block');
+    idleT = still && started && !encounter?.cinematic ? idleT + dt : 0;
+    arena?.update(dt, { position: player.position, facing: player.facing, radius: 0.38, attackKey: combat?.state === 'attack' ? `p${combat.attackInstance}` : null, mash: combat?.mashScore() ?? 0, ghost: abilities?.ghost ?? false,
+      idle: idleT, vel: player.velocity, recovering: combat?.state === 'recover' });
+    threats?.update();
     combatSystem?.update(dt);
     vfx?.update(dt);
     spiritFx?.update(dt);

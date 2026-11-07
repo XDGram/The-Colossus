@@ -77,6 +77,8 @@ export class TempleEncounter {
     preload(): void; build(): void; readonly ready: boolean; readonly active: boolean;
     enter(): { player: THREE.Vector3; boss: THREE.Vector3 } | null; exit(): void;
     glitch(v: number): void; music(valley: boolean): void;
+    /** The shatter overlay: freeze the next frame onto glass cracking from `impact` (screen -1..1). */
+    capture(impact: [number, number], aspect: number): void; crack(v: number): void; fall(v: number): void; hideShatter(): void;
   } | null = null;
   /** Realm timing: in, inside (max REALM_TIME or until his health drops to REALM_HP), out, done. */
   realmStage: 'none' | 'arrive' | 'in' | 'inside' | 'out' | 'done' = 'none';
@@ -313,7 +315,7 @@ export class TempleEncounter {
           const close = w.effective().distanceTo(P) < 7.5;
           if ((close && this.wardenT > 1.2) || this.wardenT > 6) {
             this.visited.add(4); this.raid = false; this.returnPos.copy(P); this.entryHp = this.hp(w);
-            this.realmStage = 'in'; this.realmT = 0; r.music(true);
+            this.beginTrans('in');
             this.caption('THE TEMPLE WARDEN', '“Let me show you where this ends.”', 2.5);
             this.arena.bossCtx.sound?.('stormCall', w.effective());
           }
@@ -328,44 +330,128 @@ export class TempleEncounter {
       case 'arrive': {
         // He has struck down beside the player; a beat, then the world tears.
         this.realmT += dt;
-        if (this.realmT > 1.3) { this.realmStage = 'in'; this.realmT = 0; r.music(true); this.arena.bossCtx.sound?.('stormCall', w.effective()); }
+        if (this.realmT > 1.1) this.beginTrans('in');
         break;
       }
-      case 'in': case 'out': {
-        this.realmT += dt;
-        const t = this.realmT;
-        r.glitch(t < G.ramp ? (t / G.ramp) ** 1.5 : t < G.swap ? 1 : Math.max(0, 1 - (t - G.swap) / (G.end - G.swap)));
-        if (t < G.swap) { this.freeze(true); if (Math.random() < 0.15) this.onShake?.(0.06, 0.15); }
-        if (t >= G.swap && !this.introDone.has(`swap-${this.realmStage}`)) {
-          this.introDone.add(`swap-${this.realmStage}`);
-          this.swapWorld(this.realmStage === 'in');
-        }
-        if (t >= G.end) {
-          r.glitch(0); this.freeze(false);
-          if (this.realmStage === 'in') { this.realmStage = 'inside'; this.realmT = 0; w.unleashed = true; }
-          else { this.realmStage = 'done'; this.introDone.delete('swap-in'); this.introDone.delete('swap-out'); }
-        }
-        break;
-      }
+      case 'in': case 'out': this.updateTrans(dt); break;
       case 'inside': {
         this.realmT += dt;
-        // Brief flickers: the realm is unstable.
-        if (Math.random() < dt * 0.25) r.glitch(0.35); else r.glitch(0);
         const lost = (this.entryHp - this.hp(w)) / HEALTH.warden;
         const over = this.raid
           ? this.realmT > TempleEncounter.RAID_TIME || lost >= TempleEncounter.RAID_HP_LOSS || (alive === 0 && this.realmT > 14)
           : this.realmT > TempleEncounter.REALM_TIME || lost >= TempleEncounter.FINAL_HP_LOSS || w.hpFrac <= BOSS.phase3;
         if (over && !w.dead && this.combat.state !== 'dead' && !['attack', 'tell', 'vanish'].includes(w.state)) {
-          this.realmStage = 'out'; this.realmT = 0; w.unleashed = false; r.music(false);
-          if (this.raid) {
-            // He withdraws in smoke before the world tears back.
-            this.arena.bossCtx.vfx?.puff(w.effective(), false); this.arena.bossCtx.sound?.('vanish', w.effective());
-            w.e.object.visible = false; this.setUpdate(w, () => {});
-            this.caption('', 'The Warden withdraws. The realm shatters.', 2.5);
-          } else this.caption('', 'The realm shatters.', 2);
+          w.unleashed = false;
+          this.beginTrans('out');
+          this.caption('', this.raid ? 'The Warden withdraws. The realm shatters.' : 'The realm shatters.', 2.5);
         }
         break;
       }
+    }
+  }
+  // ------------------------------------------------------------------ the shatter cinematic
+  /**
+   * The world breaks like glass. Full version (the first time each way, and the final fight): the camera turns to the
+   * Warden (raising his blade to go in, driving it into the ground to come back) as a rumble rises and lightning
+   * strikes; the frame freezes and cracks run out from him; the glass shatters (the worlds swap underneath) and falls
+   * away while the camera sweeps in high over the new world and settles behind the player. Quick version: the
+   * gameplay view cracks and shatters in a second. Everyone is held still throughout.
+   */
+  private static readonly TRANS = {
+    full: { crack: 0.8, swap: 1.45, fall: 1.1, sweep: 3.1, end: 3.9 },
+    quick: { crack: 0, swap: 0.4, fall: 0.8, sweep: 0, end: 1.25 },
+  };
+  private trans: { dir: 'in' | 'out'; full: boolean; captured: boolean; swapped: boolean; a: { pos: THREE.Vector3; look: THREE.Vector3 } | null; b: [THREE.Vector3, THREE.Vector3, THREE.Vector3] | null } | null = null;
+  private played = new Set<string>();
+  private beginTrans(dir: 'in' | 'out') {
+    const w = this.warden as WardenBrain, final = this.phase === 'warden';
+    const full = !this.played.has(dir) || final;
+    this.played.add(dir);
+    this.realmStage = dir; this.realmT = 0;
+    this.freeze(true);
+    this.trans = { dir, full, captured: false, swapped: false, a: null, b: null };
+    const ctx = this.arena.bossCtx, wp = w.effective();
+    if (full) {
+      // Shot A: close on the Warden, a little to the side, looking up at the blade.
+      const head = wp.clone().setY(wp.y + 1.6), toP = this.player.position.clone().sub(wp).setY(0).normalize();
+      // Pick the angle with the clearest view (no soldier or the player between the camera and him).
+      const bodies = [this.player.position, ...this.arena.brains.filter((b) => b !== w && !b.dead && b.e.object.visible).map((b) => b.effective())];
+      let best: THREE.Vector3 | null = null, bestClear = -1;
+      for (const yaw of [0.5, -0.5, 1.0, -1.0, 1.6, -1.6, 2.4, -2.4]) {
+        const dir = toP.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
+        const pos = head.clone().addScaledVector(dir, 3.0).add(new THREE.Vector3(0, -0.35, 0));
+        let clear = 9;
+        for (const bp of bodies) {
+          const c = bp.clone().setY(bp.y + 1.1), seg = head.clone().sub(pos), k = THREE.MathUtils.clamp(c.clone().sub(pos).dot(seg) / seg.lengthSq(), 0, 1);
+          clear = Math.min(clear, c.distanceTo(pos.clone().addScaledVector(seg, k)));
+        }
+        if (clear > bestClear + 0.05) { bestClear = clear; best = pos; }
+        if (clear > 1.3) break;
+      }
+      // Going in he raises the blade (look up at it); coming back he drives it down (wider, looking at his hands).
+      this.trans.a = dir === 'in' ? { pos: best!, look: head.clone().add(new THREE.Vector3(0, 0.35, 0)) }
+        : { pos: best!.clone().sub(head).multiplyScalar(1.35).add(head).add(new THREE.Vector3(0, 0.55, 0)), look: head.clone().add(new THREE.Vector3(0, -0.7, 0)) };
+      w.e.object.visible = true;
+      w.e.play((dir === 'in' ? 'raise' : 'plunge') as never, 0.1); w.e.rate = 1;
+      this.cinematic = { drive: new THREE.Vector3(), cam: this.trans.a, blend: -1 };
+      ctx.sound?.('riser');
+    } else {
+      this.cinematic = { drive: new THREE.Vector3(), cam: null, blend: -1 };
+      if (dir === 'out' && this.raid) { ctx.vfx?.puff(wp, false); ctx.sound?.('vanish', wp); w.e.object.visible = false; }
+    }
+    this.cineBars(true);
+  }
+  private updateTrans(dt: number) {
+    const tr = this.trans!, r = this.realm!, w = this.warden as WardenBrain, ctx = this.arena.bossCtx;
+    const T = tr.full ? TempleEncounter.TRANS.full : TempleEncounter.TRANS.quick;
+    this.realmT += dt;
+    const t = this.realmT, cine = this.cinematic!;
+    if (tr.full && !tr.swapped) {
+      // Shot A drifts slowly in; lightning answers the raised blade.
+      cine.cam = { pos: tr.a!.pos.clone().lerp(tr.a!.look, Math.min(0.25, t * 0.12)), look: tr.a!.look };
+      if (t > 0.45 && !this.introDone.has('trans-bolt')) {
+        this.introDone.add('trans-bolt');
+        const g = w.effective(); ctx.vfx?.bolt(g.clone().add(new THREE.Vector3(0.3, 0, 0.2)), 16, 1.8);
+        ctx.sound?.('thunder', g); this.onShake?.(0.08, 0.3);
+      }
+    }
+    // Freeze the frame onto the glass, cracking out from the Warden (or the screen centre).
+    if (t >= T.crack && !tr.captured) {
+      tr.captured = true;
+      const q = w.e.object.visible ? w.e.chest().project(this.camera) : new THREE.Vector3(0, 0.1, 0);
+      r.capture([THREE.MathUtils.clamp(q.x, -0.8, 0.8), THREE.MathUtils.clamp(q.y, -0.8, 0.8)], innerWidth / innerHeight);
+      ctx.sound?.('stormMark');
+    }
+    if (tr.captured && !tr.swapped) r.crack(THREE.MathUtils.smoothstep(t, T.crack, T.swap));
+    if (t >= T.swap && !tr.swapped) {
+      tr.swapped = true; this.introDone.delete('trans-bolt');
+      r.crack(1);
+      this.swapWorld(tr.dir === 'in');
+      r.music(tr.dir === 'in');
+      ctx.sound?.(tr.dir === 'in' ? 'shatter' : 'rewind'); ctx.sound?.('thunder');
+      this.onShake?.(0.18, 0.45);
+      if (tr.full) {
+        // Shot B: high over the new world, sweeping down behind the player.
+        const P = this.player.position, f = new THREE.Vector3(Math.sin(this.player.facing), 0, Math.cos(this.player.facing)), side = new THREE.Vector3(f.z, 0, -f.x);
+        const look = P.clone().addScaledVector(f, 12).add(new THREE.Vector3(0, 2, 0));
+        tr.b = [P.clone().addScaledVector(f, -16).addScaledVector(side, 9).add(new THREE.Vector3(0, 13, 0)), P.clone().addScaledVector(f, -4.5).addScaledVector(side, 1.2).add(new THREE.Vector3(0, 2.4, 0)), look];
+      }
+    }
+    if (tr.swapped) {
+      r.fall(THREE.MathUtils.clamp((t - T.swap) / T.fall, 0, 1));
+      if (t - T.swap > T.fall) r.hideShatter();
+      if (tr.full && tr.b) {
+        if (t < T.sweep) {
+          const k = THREE.MathUtils.smootherstep(t, T.swap, T.sweep);
+          const P = this.player.position.clone().add(new THREE.Vector3(0, 1.4, 0));
+          cine.cam = { pos: tr.b[0].clone().lerp(tr.b[1], k), look: tr.b[2].clone().lerp(P, k) };
+        } else { cine.cam = null; cine.blend = Math.min(1, (t - T.sweep) / (T.end - T.sweep)); }
+      }
+    }
+    if (t >= T.end) {
+      r.hideShatter(); this.freeze(false); this.cinematic = null; this.cineBars(false); this.trans = null;
+      if (this.realmStage === 'in') { this.realmStage = 'inside'; this.realmT = 0; w.unleashed = true; }
+      else { this.realmStage = 'done'; this.introDone.delete('swap-in'); this.introDone.delete('swap-out'); }
     }
   }
   private hp(w: EnemyBrain) { return this.system.vitals.get(w)?.hp ?? this.wardenHp; }
@@ -426,9 +512,6 @@ export class TempleEncounter {
       b.pos.set(q.x, 0, q.z); b.knockVel.set(0, 0, 0);
     }
     this.onSnap?.();
-    this.flashScreen();
-    this.arena.bossCtx.sound?.('thunder', bp);
-    this.onShake?.(0.2, 0.5);
   }
   /** End of a raid: he leaves the fight (keeping his health) until the next. */
   private raidOff(w: WardenBrain) {
@@ -447,6 +530,8 @@ export class TempleEncounter {
   /** Leave the realm at once (retry after a defeat inside it). */
   private resetRealm() {
     if (this.frozen) this.freeze(false);
+    this.trans = null; this.realm?.hideShatter(); this.played.clear();
+    if (this.realmStage === 'in' || this.realmStage === 'out') this.cinematic = null;
     if (this.realm?.active) { this.realm.exit(); this.realm.music(false); }
     this.realm?.glitch(0);
     this.realmStage = 'none'; this.realmT = 0; this.wardenT = 0;

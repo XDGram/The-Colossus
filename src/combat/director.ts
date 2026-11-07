@@ -5,11 +5,22 @@
  */
 export type EnemyKind = 'runner' | 'breaker';
 
-export const DIRECTOR = { maxAttackers: 3, maxBreakers: 1, startGap: 0.4 };
+export const DIRECTOR = { maxAttackers: 3, maxBreakers: 1, startGap: 0.4,
+  /**
+   * Off-screen attacks (revised): an enemy the player can't see may still attack — one at a time, at least 1.1 s
+   * apart — with a battle cry from its direction, a screen-edge marker and a longer warning (OFFSCREEN_TELL).
+   */
+  offscreenGap: 1.1 };
+/** Extra warning time (s) for an attack that starts off screen. */
+export const OFFSCREEN_TELL = 0.3;
 
 export class AttackDirector {
   private holders = new Map<string, EnemyKind>();
   private lastStart = -Infinity;
+  private lastOffscreen = -Infinity;
+  private offscreen = new Set<string>();
+  /** Called when an attack is granted off screen (the game plays the cry and shows the edge marker). */
+  onOffscreen: ((id: string) => void) | null = null;
   /** While set (the Warden boss's spells / teleport), only this enemy may start attacks. */
   exclusive: string | null = null;
   /** Log of granted starts [time, id] (tests). */
@@ -28,13 +39,21 @@ export class AttackDirector {
     if (this.holders.size >= DIRECTOR.maxAttackers) return false;
     if (kind === 'breaker' && [...this.holders.values()].filter((k) => k === 'breaker').length >= DIRECTOR.maxBreakers) return false;
     if (now - this.lastStart < DIRECTOR.startGap) return false;
-    if (!this.visible(tellAt, id)) return false;
+    const seen = this.visible(tellAt, id);
+    if (!seen) {
+      // At most one unseen attacker at a time, and not in quick succession.
+      if ([...this.offscreen].some((o) => this.holders.has(o)) || now - this.lastOffscreen < DIRECTOR.offscreenGap) return false;
+      this.offscreen.add(id); this.lastOffscreen = now;
+    } else this.offscreen.delete(id);
     this.holders.set(id, kind); this.lastStart = now; this.starts.push([now, id]);
+    if (!seen) this.onOffscreen?.(id);
     return true;
   }
   /** Would this enemy's warning be visible to the player right now (on screen and unobstructed)? */
   canSee(id: string, pts: { x: number; y: number; z: number }[]) { return this.visible(pts, id); }
   /** The attack (and its recovery) is over, or the enemy was interrupted / died. */
-  release(id: string) { this.holders.delete(id); }
+  release(id: string) { this.holders.delete(id); this.offscreen.delete(id); }
+  /** Was this enemy's current attack started off screen (longer warning)? */
+  unseen(id: string) { return this.offscreen.has(id) && this.holders.has(id); }
   breakerAttacking() { return [...this.holders.values()].includes('breaker'); }
 }

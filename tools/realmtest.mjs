@@ -58,11 +58,17 @@ check('The Warden raids near the end of wave 1', arrive[0] === 'arrive' && arriv
 const ret = await page.evaluate(() => window.H.g.player.position.toArray());
 await page.evaluate(() => window.H.steps(20));
 await shot('01-warden-arrives');
-await page.evaluate(() => window.H.steps(70));
-await shot('02-glitch-in');
-await page.evaluate(() => window.H.steps(28));
-await shot('03-glitch-peak');
-await page.evaluate(() => { const { E, steps } = window.H; for (let i = 0; i < 200 && E.realmStage !== 'inside'; i++) steps(1); });
+await page.evaluate(() => { const { E, steps } = window.H; for (let i = 0; i < 120 && E.realmStage !== 'in'; i++) steps(1); steps(36); });
+await shot('02-closeup');
+await page.evaluate(() => window.H.steps(30));
+await shot('03-cracks');
+await page.evaluate(() => window.H.steps(22));
+await shot('04-shatter');
+await page.evaluate(() => window.H.steps(26));
+await shot('05-shatter2');
+await page.evaluate(() => window.H.steps(40));
+await shot('06-sweep');
+await page.evaluate(() => { const { E, steps } = window.H; for (let i = 0; i < 300 && E.realmStage !== 'inside'; i++) steps(1); });
 const inside = await page.evaluate(() => {
   const { E, g } = window.H; const r = g.realm(), P = g.player.position, B = g.arena().brains.find((b) => b.e.kind === 'warden');
   const sol = E.wave.filter((b) => !b.dead).map((b) => Math.hypot(b.pos.x - 68, b.pos.z - 148));
@@ -73,7 +79,7 @@ check('Player stands on valley ground', Math.abs(inside.py - inside.gy) < 0.3);
 check('The surviving soldiers came through', inside.sol.length === 3 && inside.sol.every((d) => d < 20), JSON.stringify(inside.sol));
 check('The Warden fights (unleashed, hittable)', inside.unleashed && inside.inFight);
 await page.evaluate(() => window.H.steps(90));
-await shot('04-valley-raid');
+await shot('07-valley-raid');
 // Clear his soldiers so the powers can be forced one by one.
 await page.evaluate(() => { const { E } = window.H; for (const b of E.wave) if (!b.dead) b.kill(); });
 
@@ -121,6 +127,10 @@ for (const [pw, at, extra] of [['inferno', 92, 14], ['meteor', 118, 8], ['wrath'
 }
 // He withdraws: back to the temple, where the wave is finished.
 await page.evaluate(() => { const { E } = window.H; E.realmT = 999; });
+await page.evaluate(() => { const { E, steps } = window.H; for (let i = 0; i < 400 && E.realmStage !== 'out'; i++) steps(1); steps(70); });
+await shot('08-out-cracks');
+await page.evaluate(() => window.H.steps(30));
+await shot('09-out-shatter');
 await page.evaluate(() => { const { E, steps } = window.H; for (let i = 0; i < 400 && E.realmStage !== 'done'; i++) steps(1); });
 const back = await page.evaluate(() => {
   const { E, g } = window.H; const r = g.realm(), P = g.player.position, B = g.arena().brains.find((b) => b.e.kind === 'warden');
@@ -135,7 +145,7 @@ check('Wave 2 follows', w2 === 'wave2', w2);
 // The final fight goes through the realm too.
 const fin = await page.evaluate(() => {
   const { E, g, steps } = window.H; E.queue = []; for (const b of E.wave) if (!b.dead) b.kill(); E.visited.add(2); E.visited.add(3);
-  E.startWarden(); for (let i = 0; i < 60 * 8 && E.realmStage !== 'inside'; i++) steps(1);
+  E.startWarden(); for (let i = 0; i < 60 * 12 && E.realmStage !== 'inside'; i++) steps(1);
   return [E.phase, E.realmStage, g.realm().active];
 });
 check('Final fight: the realm again', fin[0] === 'warden' && fin[1] === 'inside' && fin[2], fin.join());

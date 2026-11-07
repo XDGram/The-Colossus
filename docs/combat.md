@@ -206,13 +206,34 @@ Every hit that lands now gets a visible reaction that matches the attack (`src/c
 
   Poise still accumulates and breaks are logged, but no longer change the reaction, so damage (including the open
   bonus) is unchanged. A Runner already down stays down; a staggered Runner hit by a light cut stays staggered.
-- **Breaker:** any hit during his warning (tell) cancels the attack with a shudder (strike first and he can't swing);
-  his swing itself stays armoured. Meter and knee-drop unchanged.
+- **Iron Breaker (revised again): heavy armour, but the weight of the attack moves him** (`GIANT` in reactions.ts),
+  always heavier and shorter-lived than a Runner's reaction:
+
+  | Attack | Giant reaction | Slide | Interrupts |
+  |---|---|---|---|
+  | Cut 1–3, Phantom Step | Shoulder jolt | 0.25 m | Only his warning (a swing carries on) |
+  | Lunge, riposte, heavy slash, kick, spin | Stumbles back (open ×1.5) | 1.4 m | Anything but a swing in progress |
+  | Leap slam, Colossus Rift, Rupture collapse | Reels back, turned aside (open) | 2.0 m | Everything |
+  | Gravity Rupture ring | Thrown to one knee for 1.4 s (open) | 0.3 m | Everything |
+
+  He can't start an attack for 0.5–1.6 s afterwards. His guard still blocks frontal Cut 1 / Cut 2 while he isn't
+  attacking. The meter and the 2.2 s armour-break knee-drop are unchanged.
 - **Temple Warden:** boss armour kept: physical layer and slide only, plus his existing shudder and knee-drop.
 - **Killing blows** turn the body to face the player so it falls away from him, and throw it back (Rift kills slide
   about 3 m).
 
 ## 7. Enemy decision-making and teamwork
+
+**Revised (aggressive but readable):**
+- **Unseen attacks are allowed.** An enemy outside the player's view may start an attack — one at a time, at least
+  1.1 s apart — announced by a battle cry from its direction, a screen-edge chevron pointing at it (pale or red), and
+  a 0.3 s longer warning.
+- **Waiting is punished:** after 1.5 s of the player standing still without attacking, enemies decide 2.5× as often.
+- **Tactics:** every third Runner is a flanker that circles round behind the player; a whiffed swing nearby is
+  answered at once; a retreating player is chased down with a lunge; Runners sometimes feint (hold the wind-up 0.3 s
+  longer); a Runner below 30% health may give ground for a moment. The limits (3 attackers, 1 Breaker, 0.4 s between
+  starts) are unchanged.
+
 
 **States:** `Approach → Hold → (ticket) → Tell → Attack → Recover → Reposition`.
 Interrupted by `Dodge / Parry / Block / Flinch / Stagger / Dead`.

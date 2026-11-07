@@ -43,6 +43,14 @@ Original downloads are kept out of the repository (`assets-src/`, git-ignored). 
 | 80 CC0 RPG SFX (player abilities) | [OpenGameArt](https://opengameart.org/content/80-cc0-rpg-sfx) | rubberduck | CC0 1.0 | Not required (credited) | `blade_01.ogg`, `blade_02.ogg`, `stones_01.ogg` | `public/assets/audio/{riftCharge,spiritCut,ruptureQuake}.mp3` | Layered as above (katana ring, stone grinding) |
 | 75 CC0 breaking / falling / hit sfx | [OpenGameArt](https://opengameart.org/content/75-cc0-breaking-falling-hit-sfx) | rubberduck | CC0 1.0 | Not required (credited) | `bfh1_rock_falling_02.ogg` | `public/assets/audio/debris.mp3` | Loudness-normalised (Gravity Rupture debris landing) |
 
+## Sound effects added for the realm cinematic and enemy cries
+
+| Asset | Source | Author | Licence | Used as |
+|---|---|---|---|---|
+| Glass break | [OpenGameArt](https://opengameart.org/content/glass-break) | (OpenGameArt submitter) | CC0 1.0 | `public/assets/audio/shatter.mp3`; reversed and layered with the thunder for `rewind.mp3` |
+| 15 vocal male strain/hurt/pain/jump sounds | [OpenGameArt](https://opengameart.org/content/15-vocal-male-strainhurtpainjump-sounds) | qubodup | CC0 1.0 | Two clips trimmed and loudness-normalised: `cry.mp3`, `cry2.mp3` (enemy battle cries) |
+| Rising rumble | Synthesised for this game (brown noise and a low sine sweep, ffmpeg) | — | Original | `riser.mp3` |
+
 ## Supplied by the project owner
 
 - **Music:** `public/assets/audio/music.m4a` (temple) and `public/assets/audio/valley.m4a` (the Warden's realm),

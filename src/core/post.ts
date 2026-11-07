@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { Shatter } from '../fx/shatter';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
@@ -139,13 +140,16 @@ const GradeShader = {
 export class Post {
   readonly composer: EffectComposer;
   private grade: ShaderPass;
+  /** The realm transition's glass shards (drawn over the finished frame). */
+  readonly shatter = new Shatter();
+  private renderer: THREE.WebGLRenderer;
   bloom?: UnrealBloomPass;
   rays: GodRaysPass;
   private camera: THREE.Camera;
   private sunDir = new THREE.Vector3(0, 1, 0);
 
   constructor(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera, quality: 'high' | 'low', sunDir?: THREE.Vector3) {
-    this.camera = camera;
+    this.camera = camera; this.renderer = renderer;
     if (sunDir) this.sunDir.copy(sunDir);
     const size = renderer.getDrawingBufferSize(new THREE.Vector2());
     // Prefer HDR; fall back to 8-bit where float colour buffers aren't renderable (keeps the image intact).
@@ -189,5 +193,6 @@ export class Post {
     this.rays.uniforms.uVisible.value = THREE.MathUtils.smoothstep(facing, 0.05, 0.45) * (1 - THREE.MathUtils.smoothstep(off, 1.2, 2.2));
     this.grade.uniforms.uTime.value = performance.now() / 1000;
     this.composer.render();
+    this.shatter.afterFrame(this.renderer);
   }
 }

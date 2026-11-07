@@ -3,7 +3,7 @@ import { HitWorld, BODY, WEAPON_RADIUS, type HitEvent } from './hits';
 import type { EnemyBrain } from './brain';
 import type { PlayerCombat } from '../player/combat';
 import type { Player } from '../player/player';
-import { HITSTUN_COOLDOWN, KNOCK_SCALE, LIFT_SCALE, REACTIONS } from './reactions';
+import { GIANT, HITSTUN_COOLDOWN, KNOCK_SCALE, LIFT_SCALE, REACTIONS } from './reactions';
 import { BOSS, ENEMY_HITS, HEALTH, OPEN_METER, meterGain, playerDamage, PLAYER_MOVES, type EnemyHitDef, type PlayerMoveName } from './tables';
 
 /**
@@ -128,6 +128,7 @@ export class CombatSystem {
     const open = b.isOpen();
     const dmg = Math.round(playerDamage(move, open) * scale);
     v.hp = Math.max(0, v.hp - dmg);
+    b.hurt = v.hp / (b.e.kind === 'warden' ? HEALTH.warden : HEALTH[b.e.cls]);
     this.note('hit', b.id, dmg, `${move}${open ? ' (open x1.5)' : ''} hp ${v.hp}`);
     // Hit reaction (src/combat/reactions.ts): the physical layer and a knockback for everyone.
     const rx = REACTIONS[move], from = this.player.position, kscale = KNOCK_SCALE[b.e.kind === 'warden' ? 'warden' : b.e.cls];
@@ -157,14 +158,26 @@ export class CombatSystem {
         this.note(kind === 'flinch' ? 'flinched' : kind === 'stagger' ? 'staggered' : 'knocked down', b.id, undefined, was === 'attack' || was === 'tell' ? 'attack interrupted' : undefined);
       }
     } else {
-      // Super-armour: ordinary hits never interrupt. The meter builds toward the knee-drop.
       const behind = toPlayer.dot(facing) < -0.17;
+      // Iron Breaker: heavy armour, but the weight of the attack moves him (reactions.ts GIANT): light cuts jolt him,
+      // heavy attacks stumble him back (unless mid-swing), the leap slam and the Rift reel him, the Rupture drops him to
+      // a knee. The meter still builds toward the armour break (the long knee-drop).
+      if (b.e.kind === 'breaker') {
+        const kind = b.state === 'tell' && rx.giant === 'none' ? 'jolt' : rx.giant;
+        const was = b.state, out = b.giantReact(kind);
+        if (out !== 'none' && out !== 'armoured' && out !== 'kneeling') {
+          const g = GIANT[kind as keyof typeof GIANT];
+          b.impulse(from, rx.lean * 1.1, rx.twist + (kind === 'reel' ? 0.5 : 0), g.knock);
+          b.hitstun(g.stun);
+          this.note(out, b.id, undefined, was === 'attack' || was === 'tell' ? 'attack interrupted' : undefined);
+        } else if (out === 'armoured') { b.impulse(from, rx.lean * 1.2, rx.twist, 0.35); this.note('armoured', b.id); }
+      }
+      // Super-armour (the Warden): ordinary hits never interrupt. The meter builds toward the knee-drop.
       if (this.time < v.immuneUntil) { this.note('meter immune', b.id); return 'immune'; }
       const gain = meterGain(move, open, behind) * scale;
       this.addMeter(b, v, gain, `${move}${open ? ' open' : ''}${behind ? ' behind' : ''}`);
       // A Breaker's warning is cancelled by any hit (strike first and he can't attack); his swing itself is armoured.
-      if (b.e.kind === 'breaker' && b.state === 'tell') { b.react('flinch'); b.hitstun(HITSTUN_COOLDOWN); this.note('tell cancelled', b.id); }
-      else if (b.state === 'hold' || b.state === 'reposition') b.react('flinch'); // small shudder while not attacking
+      if (b.e.kind !== 'breaker' && (b.state === 'hold' || b.state === 'reposition')) b.react('flinch'); // the Warden's shudder
     }
     return 'hit';
   }

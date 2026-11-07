@@ -3,7 +3,7 @@ import type { Enemy } from '../enemies/enemy';
 import type { AttackDirector } from './director';
 import { ENEMY_HITS } from './tables';
 import { CHARGE_BODY } from './system';
-import { DIRECTOR } from './director';
+import { DIRECTOR, OFFSCREEN_TELL } from './director';
 
 /**
  * Enemy behaviour (docs/combat.md §7): movement, spacing, attack choice, tells and reactions, driving an Enemy.
@@ -26,6 +26,12 @@ export interface PlayerView {
   mash?: number;
   /** Phantom Step: the player passes through bodies (enemy spacing does not push against the player). */
   ghost?: boolean;
+  /** Seconds the player has stood still without attacking (enemies punish waiting). */
+  idle?: number;
+  /** Player's ground velocity (enemies dash in on a retreat). */
+  vel?: THREE.Vector3;
+  /** The player is recovering from a swing (a whiff can be punished). */
+  recovering?: boolean;
 }
 export interface WorldQuery {
   height(x: number, z: number): number;
@@ -75,6 +81,15 @@ export class EnemyBrain {
   protected stuckT = 0; protected stuckRef = new THREE.Vector3();
   protected cue: THREE.Sprite;
   protected deadT = 0;
+  /**
+   * Tactics (Runners): most press from the player's front quarter; some are flankers that work round behind
+   * (their attacks start off screen, announced by a cry). `hurt` (health fraction, set by the combat system) makes a
+   * badly wounded Runner back off for a moment; `delay` lengthens the current warning (off-screen start, or a feint).
+   */
+  role: 'front' | 'flanker' = 'front';
+  hurt = 1;
+  protected delay = 0;
+  protected wary = 0;
   /** Debug: last steering target (world). */
   readonly target = new THREE.Vector3();
   removed = false;
@@ -94,6 +109,8 @@ export class EnemyBrain {
   constructor(readonly e: Enemy, readonly id: string, protected director: AttackDirector, protected world: WorldQuery, protected rnd: () => number) {
     this.p = e.kind === 'runner' ? RUNNER : e.kind === 'warden' ? { ...BREAKER, radius: 0.42, hold: [1.2, 1.6] as [number, number], nativeWalk: 1.45 * 1.05 * 0.55, nativeJog: 1.45 * 1.05 * 0.55 } : BREAKER;
     this.orbitSide = rnd() < 0.5 ? -1 : 1;
+    // Every third Runner is a flanker (from its spawn number, so the shared random stream is untouched).
+    if (e.kind === 'runner' && +(id.split('#')[1] ?? 0) % 3 === 2) this.role = 'flanker';
     this.radiusWant = this.p.ring ? THREE.MathUtils.lerp(this.p.ring[0] + 0.4, this.p.ring[1] - 0.4, rnd()) : 2.25;
     this.nextDecision = THREE.MathUtils.lerp(this.p.decide[0], this.p.decide[1], rnd());
     // Tell cue: a soft glint (pale = parryable, red = unparryable) shown during the warning.
@@ -123,6 +140,24 @@ export class EnemyBrain {
     else if (kind === 'dodge' && r) this.startDodge();
     else if (kind === 'parry' && r) { this.set('parry'); this.e.play('parry' as never, 0.08); }
   }
+  /**
+   * Iron Breaker hit reactions (src/combat/reactions.ts GIANT): heavier than a Runner's. Returns what happened.
+   * A jolt never stops a swing; a stumble stops anything but a swing in progress; a reel and a knee stop everything.
+   */
+  giantReact(kind: 'none' | 'jolt' | 'stumble' | 'reel' | 'knee'): string {
+    if (this.dead || kind === 'none') return 'none';
+    const swinging = this.state === 'attack';
+    if (this.state === 'stagger' && this.e.move === 'stagger') return 'kneeling';          // armour broken: stays down
+    if (kind === 'jolt' || (kind === 'stumble' && swinging)) {
+      if (swinging) return 'armoured';                                                       // the swing carries on
+      this.release(); this.set('flinch'); this.e.play('jolt' as never, 0.06); this.e.rate = 1; return 'jolted';
+    }
+    this.release(); this.cue.visible = false; this.attack = null;
+    this.set('stagger'); this.e.play((kind === 'knee' ? 'kneel' : kind) as never, 0.08); this.e.rate = 1;
+    return kind === 'knee' ? 'knocked to one knee' : kind === 'reel' ? 'reeled' : 'stumbled';
+  }
+  /** The current attack can't be parried (red warning). */
+  get unparryable() { return !!this.attack && this.state !== 'dead' && this.tellOf(this.attack).unparryable; }
   /** A player hit: the physical hit layer and a knockback slide of `knock` metres away from `from`. */
   impulse(from: THREE.Vector3, lean: number, twist: number, knock: number) {
     const dir = this.effective().sub(from).setY(0);
@@ -210,7 +245,15 @@ export class EnemyBrain {
       case 'hold': {
         if (this.p.ring) { want = this.orbit(me, player, others, dt); face = want.lengthSq() > 0.05 ? null : facePlayer; }
         else want = this.holdLine(me, player, dist);
-        this.nextDecision -= dt;
+        // Waiting is punished: after 1.5 s of the player standing still, decisions come 2.5x as often; a whiffed
+        // swing nearby is answered at once.
+        this.nextDecision -= dt * ((player.idle ?? 0) > 1.5 ? 2.5 : 1);
+        if (player.recovering && dist < 3 && this.wary <= 0) this.nextDecision = Math.min(this.nextDecision, 0.05);
+        if (this.wary > 0) { this.wary -= dt; if (this.wary <= 0 && this.p.ring) this.radiusWant = (this.p.ring[0] + this.p.ring[1]) / 2; }
+        // A retreating player is chased down with a lunge.
+        if (this.e.cls === 'runner' && player.vel && this.wary <= 0 && dist > 2.4 && dist < 4.2 && player.vel.dot(toP.clone().normalize()) > 1.6 && this.nextDecision > 0.1) {
+          this.attack = 'lunge'; this.set('engage'); break;
+        }
         if (this.e.cls === 'breaker') { this.farFor = dist > 5 ? this.farFor + dt : 0; if (this.farFor > 1.5) { this.tryAttack('charge', me, now); break; } }
         if (this.nextDecision <= 0) this.decide(me, player, dist, now);
         if (dist > (this.p.ring ? this.p.ring[1] + 1.5 : this.p.hold![1] + 1.5) && this.state === 'hold') this.set('approach');
@@ -228,7 +271,7 @@ export class EnemyBrain {
       case 'tell': {
         face = this.e.cls === 'runner' ? facePlayer : null; // the Breaker commits to his line
         this.updateCue(now);
-        if (this.stateT >= this.tellOf(this.attack!).tell) { this.cue.visible = false; this.e.frozen = false; this.set('attack'); }
+        if (this.stateT >= this.tellOf(this.attack!).tell + this.delay) { this.cue.visible = false; this.e.frozen = false; this.set('attack'); }
         break;
       }
       case 'attack':
@@ -282,6 +325,8 @@ export class EnemyBrain {
       // player would hide each other's warnings and nobody could attack).
       const busy = this.others.filter((o) => o !== this && !o.dead && (o.state === 'engage' || o.state === 'tell' || o.state === 'attack')).length;
       if (busy >= DIRECTOR.maxAttackers) { this.nextDecision = 0.25; return; }
+      // Badly wounded: give ground for a moment instead of walking onto the blade.
+      if (this.hurt < 0.3 && this.wary <= 0 && this.rnd() < 0.4 && this.p.ring) { this.wary = 1.6; this.radiusWant = this.p.ring[1] + 1.8; this.nextDecision = 1.6; return; }
       // Runners prefer to strike while the Breaker is committed (his attack in progress).
       const r = this.rnd() - (this.director.breakerAttacking() ? 0.1 : 0);
       let pick = r < 0.45 ? (this.rnd() < 0.5 ? 'slash' : 'slash2') : r < 0.7 ? 'flurry' : r < 0.85 ? 'lunge' : r < 0.95 ? 'pommel' : 'spin';
@@ -312,6 +357,8 @@ export class EnemyBrain {
   }
   protected beginTell() {
     this.thrown = false;
+    // Longer warning for an attack the player can't see; Runners sometimes feint (hold the wind-up, then strike late).
+    this.delay = (this.director.unseen(this.id) ? OFFSCREEN_TELL : 0) + (this.e.cls === 'runner' && this.rnd() < 0.22 ? 0.3 : 0);
     this.set('tell');
     this.e.play(this.attack as never, 0.12);
     this.e.frozen = true; this.e.time = 0; // hold the first frame of the attack as the warning pose
@@ -336,7 +383,8 @@ export class EnemyBrain {
     const ang = Math.atan2(rel.x, rel.z);
     // Preferred angle: the player's front quarter on our side (about 45 deg from where the player faces), where the
     // player sees the warnings, so Runners press the fight instead of lurking on the flanks.
-    const flank = wrap(player.facing + this.orbitSide * THREE.MathUtils.degToRad(45));
+    // Flankers circle round to the player's back instead.
+    const flank = wrap(player.facing + this.orbitSide * THREE.MathUtils.degToRad(this.role === 'flanker' ? 150 : 45));
     // Stay out of an attacking Breaker's front arc.
     let goal = flank;
     for (const o of others) if (o.e.cls === 'breaker' && o.state === 'attack' || o.e.cls === 'breaker' && o.state === 'tell') {
