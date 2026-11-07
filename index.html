@@ -4,7 +4,7 @@
     <link rel="preload" as="image" href="assets/ui/loading.webp" media="(min-width: 901px)" />
     <link rel="preload" as="image" href="assets/ui/loading-small.webp" media="(max-width: 900px)" />
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
     <title>The Last Colossus</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600&family=Inter:wght@400;500&display=swap" rel="stylesheet" />
@@ -12,6 +12,11 @@
       :root { --ink: #ece6d8; --dim: rgba(236, 230, 216, 0.62); --bg: #0d0f0d; }
       * { box-sizing: border-box; }
       html, body { margin: 0; height: 100%; background: var(--bg); overflow: hidden; color: var(--ink); font-family: Inter, system-ui, sans-serif; }
+      /* Phones (iOS Safari): no text selection, long-press callout, tap flash or rubber-band scrolling, any of which can
+         cancel a thumb held on the joystick. */
+      html, body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; overscroll-behavior: none; }
+      body { position: fixed; inset: 0; }
+      #touch, #touch * { touch-action: none; -webkit-touch-callout: none; }
       #app canvas { display: block; }
       .overlay { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none; transition: opacity 1.4s ease; }
       #loader { background: radial-gradient(ellipse at center, #1a1d18 0%, #0b0c0a 70%); }

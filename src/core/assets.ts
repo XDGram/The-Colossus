@@ -22,11 +22,18 @@ export class Assets {
     this.onProgress(this.done / this.total);
   }
 
-  async load(models: string[], textureSets: string[]) {
+  /** `maxSize`: downscale textures larger than this (phones load the valley realm at half resolution to save memory). */
+  async load(models: string[], textureSets: string[], opts: { maxSize?: number } = {}) {
     this.total = models.length + textureSets.length * 3;
     const aniso = Math.min(8, this.renderer.capabilities.getMaxAnisotropy());
     const loadTex = async (url: string, srgb: boolean) => {
       const t = await this.tex.loadAsync(url);
+      const img = t.image as HTMLImageElement;
+      if (opts.maxSize && img?.width > opts.maxSize) {
+        const cv = document.createElement('canvas'); cv.width = cv.height = opts.maxSize;
+        cv.getContext('2d')!.drawImage(img, 0, 0, opts.maxSize, opts.maxSize);
+        t.image = cv; t.needsUpdate = true;
+      }
       t.wrapS = t.wrapT = THREE.RepeatWrapping;
       t.anisotropy = aniso;
       t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;

@@ -79,6 +79,16 @@ async function main() {
   renderer.info.autoReset = false;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   document.getElementById('app')!.appendChild(renderer.domElement);
+  // Phones can run out of graphics memory (Safari then drops the WebGL context and the picture freezes): say so and
+  // offer a reload instead of leaving a frozen screen.
+  renderer.domElement.addEventListener('webglcontextlost', (e) => {
+    e.preventDefault();
+    const m = document.createElement('div');
+    m.style.cssText = 'position:fixed;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;text-align:center;padding:24px;background:rgba(6,6,6,0.85);color:#ece6d8;font:15px Georgia,serif';
+    m.textContent = 'The graphics ran out of memory. Tap to reload (Low graphics uses less).';
+    m.addEventListener('click', () => { localStorage.setItem('tlc-quality', 'low'); location.reload(); });
+    document.body.appendChild(m);
+  });
 
   const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.25, 9500);
   const scene = new THREE.Scene();
@@ -405,7 +415,7 @@ async function main() {
     // The Warden's realm: the valley, built in the background during the waves.
     if (!params.has('norealm')) {
       const { WardenRealm } = await import('./world/realm');
-      realm = new WardenRealm({ scene, renderer, camera, assets, sun, atmo, colliders, quality, temple: templeObjects, tpc, spiritFx });
+      realm = new WardenRealm({ scene, renderer, camera, assets, sun, atmo, colliders, quality, temple: templeObjects, tpc, spiritFx, phone: isTouch });
       const rm = realm;
       encounter.realm = {
         preload: () => { valleyMusic.preload = 'auto'; valleyMusic.load(); void rm.preload().catch(() => {}); },

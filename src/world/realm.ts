@@ -21,6 +21,8 @@ export interface RealmDeps {
   /** Everything the temple put in the scene (hidden while in the valley). */
   temple: THREE.Object3D[];
   tpc: ThirdPersonCamera; spiritFx: SpiritFx | null;
+  /** Touch device: the valley's textures load at half resolution (graphics memory is tight on phones). */
+  phone?: boolean;
 }
 
 /** The duelling ground: an open meadow on the east slope (no ruins, trees or water within 26 m), facing the Colossus. */
@@ -47,7 +49,7 @@ export class WardenRealm {
 
   /** Download the valley's models and textures in the background (called when the waves start). Safe to call again. */
   preload() {
-    if (!this.fetching) this.fetching = this.d.assets.load(VALLEY_MODELS, VALLEY_TEXTURES).catch((e) => { console.warn('valley assets unavailable', e); throw e; });
+    if (!this.fetching) this.fetching = this.d.assets.load(VALLEY_MODELS, VALLEY_TEXTURES, { maxSize: this.d.phone ? 512 : undefined }).catch((e) => { console.warn('valley assets unavailable', e); throw e; });
     return this.fetching;
   }
   /**

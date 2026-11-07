@@ -103,7 +103,20 @@ export class Input {
       if (this.lookTouch.id >= 0 && !live.has(this.lookTouch.id)) this.lookTouch.id = -1;
     };
     for (const ev of ['fullscreenchange', 'webkitfullscreenchange', 'visibilitychange']) document.addEventListener(ev, releaseAll);
-    for (const ev of ['blur', 'orientationchange', 'pagehide']) addEventListener(ev, releaseAll);
+    for (const ev of ['orientationchange', 'pagehide']) addEventListener(ev, releaseAll);
+    // ?touchdebug: a small readout of the touches and the stick (for diagnosing a device).
+    if (new URLSearchParams(location.search).has('touchdebug')) {
+      const dbg = document.createElement('div');
+      dbg.style.cssText = 'position:fixed;left:8px;top:40px;z-index:50;font:11px monospace;color:#0f0;background:rgba(0,0,0,0.6);padding:4px;pointer-events:none;white-space:pre';
+      document.body.appendChild(dbg);
+      const log: string[] = [];
+      for (const ev of ['touchstart', 'touchmove', 'touchend', 'touchcancel']) document.addEventListener(ev, (e) => {
+        const t = e as TouchEvent; if (ev === 'touchmove' && log[0]?.startsWith('touchmove')) log.shift();
+        log.unshift(`${ev} ${(t.target as HTMLElement)?.tagName} n=${t.touches.length}`); log.length = Math.min(log.length, 6);
+      }, { capture: true, passive: true });
+      const show = () => { dbg.textContent = `stick ${this.stick.id} ${this.stick.x.toFixed(2)},${this.stick.y.toFixed(2)} look ${this.lookTouch.id}\n${log.join('\n')}`; requestAnimationFrame(show); };
+      show();
+    }
     // Touches that end anywhere (also over the buttons) are seen here too.
     const endAnywhere = (e: TouchEvent) => prune(e.touches);
     document.addEventListener('touchend', endAnywhere, { capture: true });
