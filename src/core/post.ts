@@ -185,6 +185,9 @@ export class Post {
   set glitch(v: number) { this.grade.uniforms.uGlitch.value = v; }
   get glitch() { return this.grade.uniforms.uGlitch.value as number; }
 
+  /** Render resolution (the automatic scaling changes it while playing). */
+  setPixelRatio(pr: number) { this.composer.setPixelRatio(pr); }
+
   resize(w: number, h: number) {
     this.composer.setSize(w, h);
     this.grade.uniforms.uAspect.value = w / h;

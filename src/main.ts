@@ -21,8 +21,10 @@ import { PLAY, COLOSSUS_POS, terrainHeight } from './world/heightfield';
 type Quality = 'high' | 'low';
 const params = new URLSearchParams(location.search);
 const isTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
-// Phones default to Low graphics (playable frame rate); the menu toggle overrides it.
-const quality: Quality = (params.get('quality') as Quality) || (localStorage.getItem('tlc-quality') as Quality) || (isTouch ? 'low' : 'high');
+// Every device starts on High graphics; automatic resolution scaling (below) keeps it smooth, and phones get a few
+// lighter settings within High. The menu toggle (stored under a new key, so an old automatic Low is not kept) can
+// still pick Low.
+const quality: Quality = (params.get('quality') as Quality) || (localStorage.getItem('tlc-gfx') as Quality) || 'high';
 const debug = params.has('debug');
 // The temple compound is in development; the valley stays the default until it is approved.
 // The temple fight is the game; the valley (exploration) stays reachable with ?scene=valley.
@@ -72,7 +74,9 @@ for (const ev of ['pointerdown', 'keydown', 'touchstart']) addEventListener(ev, 
 
 async function main() {
   const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-  renderer.setPixelRatio(Math.min(devicePixelRatio, quality === 'high' ? 1.5 : 1));
+  /** Highest pixel ratio this device renders at; the automatic scaling works below it. */
+  const maxRatio = Math.min(devicePixelRatio, quality === 'high' ? (isTouch ? 1.6 : 1.5) : 1);
+  renderer.setPixelRatio(maxRatio);
   renderer.setSize(innerWidth, innerHeight);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -88,7 +92,7 @@ async function main() {
     const m = document.createElement('div');
     m.style.cssText = 'position:fixed;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;text-align:center;padding:24px;background:rgba(6,6,6,0.85);color:#ece6d8;font:15px Georgia,serif';
     m.textContent = 'The graphics ran out of memory. Tap to reload (Low graphics uses less).';
-    m.addEventListener('click', () => { localStorage.setItem('tlc-quality', 'low'); location.reload(); });
+    m.addEventListener('click', () => { localStorage.setItem('tlc-gfx', 'low'); location.reload(); });
     document.body.appendChild(m);
   });
 
@@ -143,7 +147,8 @@ async function main() {
   const sun = new THREE.DirectionalLight(atmo.sunColor.clone().lerp(new THREE.Color(1, 0.84, 0.64), 0.5), 4.4);
   sun.castShadow = true;
   const SH = quality === 'high' ? 70 : 50;
-  sun.shadow.mapSize.setScalar(quality === 'high' ? 4096 : 2048);
+  // Phones: a 2048 shadow map even on High (a quarter of the memory and fill; the shadow frustum follows the player).
+  sun.shadow.mapSize.setScalar(quality === 'high' && !isTouch ? 4096 : 2048);
   Object.assign(sun.shadow.camera, { left: -SH, right: SH, top: SH, bottom: -SH, near: 1, far: 600 });
   sun.shadow.bias = -0.0004;
   sun.shadow.normalBias = 0.04;
@@ -172,7 +177,7 @@ async function main() {
     sun.intensity = 5.0;
     scene.environmentIntensity = 0.62;
     renderer.toneMappingExposure = 1.0;
-    const temple = buildTemple(colliders, quality);
+    const temple = buildTemple(colliders, quality, isTouch);
     // The main gate is sealed: heavy closed doors across the passage (the fight is inside the walls).
     {
       const cv = document.createElement('canvas'); cv.width = 256; cv.height = 512; const c2 = cv.getContext('2d')!;
@@ -514,12 +519,12 @@ async function main() {
   const gfx = document.getElementById('m-gfx');
   if (gfx) {
     gfx.textContent = `Graphics: ${quality === 'high' ? 'High' : 'Low'}`;
-    gfx.addEventListener('click', (e) => { e.stopPropagation(); localStorage.setItem('tlc-quality', quality === 'high' ? 'low' : 'high'); location.reload(); });
+    gfx.addEventListener('click', (e) => { e.stopPropagation(); localStorage.setItem('tlc-gfx', quality === 'high' ? 'low' : 'high'); location.reload(); });
   }
   addEventListener('keydown', (e) => {
     if (!started && (e.code === 'Enter' || e.code === 'Space')) start();
     if (e.code === 'KeyG') {
-      localStorage.setItem('tlc-quality', quality === 'high' ? 'low' : 'high');
+      localStorage.setItem('tlc-gfx', quality === 'high' ? 'low' : 'high');
       location.reload();
     }
     if (e.code === 'F3') { ui.fps.classList.toggle('show'); e.preventDefault(); }
@@ -607,7 +612,30 @@ async function main() {
     sun.position.copy(sun.target.position).add(sunOffset);
   };
 
+  /**
+   * Automatic resolution scaling: once play starts, the frame rate is measured each second; below 50 fps the render
+   * resolution steps down (to at most 60% of the device's), and with headroom above 57 fps it steps back up. Graphics
+   * settings stay the same; the picture only gets slightly softer when the device is struggling, so play stays smooth.
+   */
+  let resScale = 1, resT = performance.now(), resFrames = 0, resChanged = 0;
+  const adaptResolution = () => {
+    if (!started || paused || document.hidden) { resT = performance.now(); resFrames = 0; return; }
+    resFrames++;
+    const now = performance.now(), span = now - resT;
+    if (span < 1000) return;
+    const f = (resFrames * 1000) / span; resT = now; resFrames = 0;
+    if (now - resChanged < 1500) return;
+    let next = resScale;
+    if (f < 50) next = Math.max(0.6, resScale - (f < 35 ? 0.15 : 0.08));
+    else if (f > 57 && resScale < 1) next = Math.min(1, resScale + 0.05);
+    if (next === resScale) return;
+    resScale = next; resChanged = now;
+    const pr = Math.max(0.5, maxRatio * resScale);
+    renderer.setPixelRatio(pr); post.setPixelRatio(pr); post.resize(innerWidth, innerHeight);
+  };
+
   const tick = () => {
+    adaptResolution();
     const dt = Math.min(clock.getDelta(), 1 / 20);
     if (!paused) {
       // Hit-stop: ability impacts briefly slow the world.
@@ -630,7 +658,7 @@ async function main() {
   // Hooks used by automated playtests and screenshot capture.
   Object.assign(window, {
     __tlc: {
-      ready: true, stats, start, player, mentor, abilities: () => abilities, spiritFx: () => spiritFx, vfx: () => vfx, enemies: () => enemyShowcase, combat: () => combat, hits: () => hitWorld, hitEvents, arena: () => arena, combatSystem: () => combatSystem, encounter: () => encounter, realm: () => realm, tpc, input, renderer, scene, camera, post,
+      ready: true, stats, start, resScale: () => resScale, player, mentor, abilities: () => abilities, spiritFx: () => spiritFx, vfx: () => vfx, enemies: () => enemyShowcase, combat: () => combat, hits: () => hitWorld, hitEvents, arena: () => arena, combatSystem: () => combatSystem, encounter: () => encounter, realm: () => realm, tpc, input, renderer, scene, camera, post,
       pause: (p: boolean) => { paused = p; renderer.domElement.style.visibility = p ? 'hidden' : 'visible'; },
       /** Deterministic capture for automated tests: simulate n frames, render once, return a JPEG data URL. */
       step: (n: number, dt = 1 / 30, capture = true) => {

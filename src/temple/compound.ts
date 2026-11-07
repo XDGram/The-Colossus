@@ -149,7 +149,7 @@ const hearth = (b: Builder, x: number, z: number) => {
 };
 
 // ---------- the compound ----------
-export function buildTemple(colliders: Colliders, quality: 'high' | 'low'): Temple {
+export function buildTemple(colliders: Colliders, quality: 'high' | 'low', mobile = false): Temple {
   ground.height = templeHeight;
   ground.normal = templeNormal;
   ground.water = () => -1e6;
@@ -545,7 +545,7 @@ export function buildTemple(colliders: Colliders, quality: 'high' | 'low'): Temp
   }
 
   const treePos = treeSpots.map((m) => new THREE.Vector3().setFromMatrixPosition(m)).filter((p) => Math.abs(p.x) < 70 && p.z > -100 && p.z < 60);
-  group.add(leafLitter(treePos, templeHeight, { minX: -62, maxX: 62, minZ: -90, maxZ: 50 }, quality === 'high' ? 90000 : 35000));
+  group.add(leafLitter(treePos, templeHeight, { minX: -62, maxX: 62, minZ: -90, maxZ: 50 }, quality === 'high' ? (mobile ? 55000 : 90000) : 35000));
   // Dense carpets: under every tree inside the walls, at the foot of the hall stairs, along the corridor
   // fronts and banked around the gate; paving stays visible between them.
   const carpetSpots = [
@@ -555,7 +555,7 @@ export function buildTemple(colliders: Colliders, quality: 'high' | 'low'): Temp
     { x: -10, z: 42, r: 6 }, { x: 9, z: 41, r: 6 }, { x: -20, z: 8, r: 5 }, { x: 18, z: -12, r: 5 },
   ];
   group.add(leafCarpets(carpetSpots, templeHeight));
-  const falling = new FallingLeaves(quality === 'high' ? 260 : 120);
+  const falling = new FallingLeaves(quality === 'high' ? (mobile ? 170 : 260) : 120);
   group.add(falling.mesh);
   // Noren curtains in the doorways of the lived-in houses.
   noren(group, -54 + 4.6 + 0.02, 0.45 + 2.25, 20 + 2.5, Math.PI / 2, 2);
