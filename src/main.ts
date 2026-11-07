@@ -458,6 +458,9 @@ async function main() {
       await done?.catch(() => {});
     })();
   }
+  // The Warden's realm (the valley) downloads and builds while the menu is up, so it is ready for his first raid at the
+  // end of wave 1 (the build runs in small slices, so it carries on harmlessly into the opening if play starts early).
+  if (encounter?.realm) setTimeout(() => { encounter?.realm?.preload(); encounter?.realm?.build(); }, 1500);
   let started = false;
   // Full screen: the game takes the whole screen when play starts (phones also lock to landscape where allowed).
   const goFullscreen = () => {

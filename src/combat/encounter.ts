@@ -79,7 +79,7 @@ export class TempleEncounter {
     glitch(v: number): void; music(valley: boolean): void;
   } | null = null;
   /** Realm timing: in, inside (max REALM_TIME or until his health drops to REALM_HP), out, done. */
-  realmStage: 'none' | 'in' | 'inside' | 'out' | 'done' = 'none';
+  realmStage: 'none' | 'arrive' | 'in' | 'inside' | 'out' | 'done' = 'none';
   private realmT = 0;
   private wardenT = 0;
   static readonly REALM_TIME = 38;
@@ -261,34 +261,74 @@ export class TempleEncounter {
     const w = this.warden!;
     const p = new THREE.Vector3(0, 0, 26); // he strides out from the hall
     w.revive(p, this.faceHome(p));
-    w.update = this.wardenUpdate!;
+    this.setUpdate(w, this.wardenUpdate!);
     this.system.add(w);
+    // He keeps the wounds from his raids into the waves.
+    const v = this.system.vitals.get(w); if (v) v.hp = this.wardenHp;
     this.boss.style.display = 'block';
     this.caption('THE TEMPLE WARDEN', '“Then I will finish this myself.”', 3.5);
     this.realmStage = 'none'; this.wardenT = 0;
     this.realm?.build();
   }
 
+  // ------------------------------------------------------------------ the Warden's realm
+  /** Waves he has already raided (1-3), and 4 for the final fight. */
+  private visited = new Set<number>();
+  /** True while the current realm sequence is a raid in the middle of a wave (he leaves again afterwards). */
+  private raid = false;
+  /** His health carries over between raids and into the final fight. */
+  private wardenHp = HEALTH.warden;
+  private entryHp = HEALTH.warden;
+  private returnPos = new THREE.Vector3();
+  static readonly RAID_TIME = 28;
+  static readonly RAID_HP_LOSS = 0.12;
+  static readonly FINAL_HP_LOSS = 0.2;
+  private static readonly RAID_LINES = ['“You fight well. Now fight me where I choose.”', '“Again. Come.”', '“One last lesson, in my world.”'];
+  private get waveNo() { return this.phase === 'wave1' ? 1 : this.phase === 'wave2' ? 2 : this.phase === 'wave3' ? 3 : 4; }
+  /** Replace an enemy's update, even while the glitch has everyone frozen (the frozen wrapper is restored later). */
+  private setUpdate(b: EnemyBrain, fn: EnemyBrain['update']) {
+    const held = b as unknown as { _held?: EnemyBrain['update'] };
+    if (held._held) held._held = fn; else b.update = fn;
+  }
+
   /**
-   * The realm sequence. In: the screen tears and flickers for 1.1 s, the worlds swap at the peak, the glitch settles.
-   * Inside: he is unleashed (every power, faster decisions) for REALM_TIME s or until his health falls to REALM_HP.
-   * Out: the same glitch back to the temple courtyard, where the fight goes on (and the temple music resumes).
+   * The realm sequence. Raids: near the end of each wave (all of it in the field and 2-4 soldiers left) the Warden
+   * strikes down in lightning beside the player, and the temple glitches into the valley with him and the surviving
+   * soldiers. He fights there unleashed until RAID_TIME, or he loses RAID_HP_LOSS of his health, or (once his soldiers
+   * are down) after 14 s; then he withdraws, the realm shatters, and the wave is finished in the temple, where the
+   * player left it. The final fight: once he closes in (or after 6 s), until REALM_TIME or FINAL_HP_LOSS.
+   * Glitch: the screen tears and flickers for 1.1 s, the worlds swap at the peak, the glitch settles.
    */
   private updateRealm(dt: number) {
     const r = this.realm, w = this.warden as WardenBrain | null;
-    if (!r || !w || w.dead) return;
-    this.wardenT += dt;
-    const G = TempleEncounter.GLITCH, P = this.player.position;
+    if (!r || !w) return;
+    const G = TempleEncounter.GLITCH, P = this.player.position, final = this.phase === 'warden', n = this.waveNo;
+    if (final) this.wardenT += dt;
+    const alive = this.wave.filter((b) => !b.dead).length;
     switch (this.realmStage) {
-      case 'none': {
-        const close = w.effective().distanceTo(P) < 7.5;
-        if (r.ready && ((close && this.wardenT > 1.2) || this.wardenT > 6)) {
-          this.realmStage = 'in'; this.realmT = 0; r.music(true);
-          this.caption('THE TEMPLE WARDEN', '“Let me show you where this ends.”', 2.5);
-          this.arena.bossCtx.sound?.('stormCall', w.effective());
+      case 'none': case 'done': {
+        if (this.visited.has(n) || !r.ready || this.combat.state === 'dead') break;
+        if (final) {
+          if (w.dead) break;
+          const close = w.effective().distanceTo(P) < 7.5;
+          if ((close && this.wardenT > 1.2) || this.wardenT > 6) {
+            this.visited.add(4); this.raid = false; this.returnPos.copy(P); this.entryHp = this.hp(w);
+            this.realmStage = 'in'; this.realmT = 0; r.music(true);
+            this.caption('THE TEMPLE WARDEN', '“Let me show you where this ends.”', 2.5);
+            this.arena.bossCtx.sound?.('stormCall', w.effective());
+          }
+        } else if (!this.queue.length && alive >= 2 && alive <= 4) {
+          this.visited.add(n); this.raid = true; this.returnPos.copy(P);
+          this.arrive(w);
+          this.realmStage = 'arrive'; this.realmT = 0;
+          this.caption('THE TEMPLE WARDEN', TempleEncounter.RAID_LINES[n - 1], 3);
         }
-        // Not loaded in time (slow connection): the whole fight stays in the temple.
-        if (!r.ready && this.wardenT > 20) this.realmStage = 'done';
+        break;
+      }
+      case 'arrive': {
+        // He has struck down beside the player; a beat, then the world tears.
+        this.realmT += dt;
+        if (this.realmT > 1.3) { this.realmStage = 'in'; this.realmT = 0; r.music(true); this.arena.bossCtx.sound?.('stormCall', w.effective()); }
         break;
       }
       case 'in': case 'out': {
@@ -303,7 +343,7 @@ export class TempleEncounter {
         if (t >= G.end) {
           r.glitch(0); this.freeze(false);
           if (this.realmStage === 'in') { this.realmStage = 'inside'; this.realmT = 0; w.unleashed = true; }
-          else { this.realmStage = 'done'; }
+          else { this.realmStage = 'done'; this.introDone.delete('swap-in'); this.introDone.delete('swap-out'); }
         }
         break;
       }
@@ -311,14 +351,36 @@ export class TempleEncounter {
         this.realmT += dt;
         // Brief flickers: the realm is unstable.
         if (Math.random() < dt * 0.25) r.glitch(0.35); else r.glitch(0);
-        if (this.realmT > TempleEncounter.REALM_TIME || w.hpFrac <= TempleEncounter.REALM_HP) {
+        const lost = (this.entryHp - this.hp(w)) / HEALTH.warden;
+        const over = this.raid
+          ? this.realmT > TempleEncounter.RAID_TIME || lost >= TempleEncounter.RAID_HP_LOSS || (alive === 0 && this.realmT > 14)
+          : this.realmT > TempleEncounter.REALM_TIME || lost >= TempleEncounter.FINAL_HP_LOSS || w.hpFrac <= BOSS.phase3;
+        if (over && !w.dead && this.combat.state !== 'dead' && !['attack', 'tell', 'vanish'].includes(w.state)) {
           this.realmStage = 'out'; this.realmT = 0; w.unleashed = false; r.music(false);
-          this.introDone.delete('swap-out');
-          this.caption('', 'The realm shatters.', 2);
+          if (this.raid) {
+            // He withdraws in smoke before the world tears back.
+            this.arena.bossCtx.vfx?.puff(w.effective(), false); this.arena.bossCtx.sound?.('vanish', w.effective());
+            w.e.object.visible = false; this.setUpdate(w, () => {});
+            this.caption('', 'The Warden withdraws. The realm shatters.', 2.5);
+          } else this.caption('', 'The realm shatters.', 2);
         }
         break;
       }
     }
+  }
+  private hp(w: EnemyBrain) { return this.system.vitals.get(w)?.hp ?? this.wardenHp; }
+  /** Raid: lightning strikes beside the player and he is there, sword drawn. */
+  private arrive(w: WardenBrain) {
+    const P = this.player.position, f = new THREE.Vector3(Math.sin(this.player.facing), 0, Math.cos(this.player.facing));
+    const p = P.clone().addScaledVector(f, 5);
+    w.revive(p, Math.atan2(P.x - p.x, P.z - p.z));
+    w.e.play('guard' as never, 0);
+    this.setUpdate(w, (d) => { w.e.update(d); });
+    const g = w.e.object.position, ctx = this.arena.bossCtx;
+    ctx.vfx?.bolt(g.clone(), 22, 2.4); ctx.vfx?.bolt(g.clone().add(new THREE.Vector3(0.5, 0, 0.3)), 18, 1.6);
+    ctx.vfx?.puff(g, true); ctx.sound?.('thunder', g);
+    this.flashScreen(); this.onShake?.(0.14, 0.5);
+    this.boss.style.display = 'block';
   }
   /** Hold everyone still during the glitch (no hits can land while the world tears). */
   private frozen = false;
@@ -336,22 +398,50 @@ export class TempleEncounter {
     const r = this.realm!, w = this.warden as WardenBrain;
     let pp: THREE.Vector3, bp: THREE.Vector3;
     if (toValley) {
-      const at = r.enter(); if (!at) { this.realmStage = 'done'; return; }
+      const at = r.enter(); if (!at) { this.realmStage = 'done'; this.raidOff(w); return; }
       pp = at.player; bp = at.boss;
+      if (this.raid) {
+        // He joins the fight for real (his health carries over between raids).
+        this.setUpdate(w, this.wardenUpdate!);
+        this.system.add(w);
+        const v = this.system.vitals.get(w); if (v) v.hp = this.wardenHp;
+        this.entryHp = this.wardenHp;
+      }
+      w.relocate(bp, Math.atan2(pp.x - bp.x, pp.z - bp.z));
     } else {
       r.exit();
-      pp = new THREE.Vector3(0, 0, 33); bp = new THREE.Vector3(0, 0, 25);
+      pp = this.returnPos.clone();
+      if (this.raid) { this.raidOff(w); bp = pp.clone().add(new THREE.Vector3(0, 0, -6)); }
+      else {
+        const f = new THREE.Vector3(Math.sin(this.player.facing), 0, Math.cos(this.player.facing));
+        bp = pp.clone().addScaledVector(f, 6);
+        w.relocate(bp, Math.atan2(pp.x - bp.x, pp.z - bp.z));
+      }
     }
     this.player.teleport(pp.x, pp.z); this.player.setFacing(Math.atan2(bp.x - pp.x, bp.z - pp.z));
-    w.relocate(bp, Math.atan2(pp.x - bp.x, pp.z - bp.z));
-    // Any soldiers still standing follow him through.
+    // The soldiers still standing come through with him, spread around the player.
     let i = 0;
-    for (const b of this.arena.brains) if (b !== w && !b.dead) { const q = bp.clone().add(new THREE.Vector3((i++ % 2 ? 1 : -1) * 3, 0, -2)); b.pos.set(q.x, 0, q.z); }
+    for (const b of this.arena.brains) if (b !== w && !b.dead) {
+      const a = (i++ / 4) * Math.PI * 2 + 0.6, q = pp.clone().add(new THREE.Vector3(Math.sin(a) * 7, 0, Math.cos(a) * 7));
+      b.pos.set(q.x, 0, q.z); b.knockVel.set(0, 0, 0);
+    }
     this.onSnap?.();
     this.flashScreen();
     this.arena.bossCtx.sound?.('thunder', bp);
     this.onShake?.(0.2, 0.5);
   }
+  /** End of a raid: he leaves the fight (keeping his health) until the next. */
+  private raidOff(w: WardenBrain) {
+    this.wardenHp = this.hp(w);
+    this.system.drop(w);
+    w.unleashed = false; this.arena.bossCtx.spells?.clear();
+    this.setUpdate(w, () => {});
+    w.e.object.visible = false; w.e.object.position.y -= 50;
+    this.director.release(w.id);
+    if (this.director.exclusive === w.id) this.director.exclusive = null;
+    this.boss.style.display = 'none';
+  }
+  private get director() { return this.arena.director; }
   /** Camera snap after a teleport (set by the game). */
   onSnap: (() => void) | null = null;
   /** Leave the realm at once (retry after a defeat inside it). */
@@ -361,6 +451,7 @@ export class TempleEncounter {
     this.realm?.glitch(0);
     this.realmStage = 'none'; this.realmT = 0; this.wardenT = 0;
     this.introDone.delete('swap-in'); this.introDone.delete('swap-out');
+    this.visited.clear(); this.raid = false; this.wardenHp = HEALTH.warden;
   }
 
   /** Clean restart after a defeat: same courtyard start, wave 1 again. */
@@ -405,8 +496,10 @@ export class TempleEncounter {
         break;
       }
       case 'wave1': case 'wave2': case 'wave3': {
-        this.trickle();
-        if (!this.queue.length && allDown(this.wave)) {
+        this.updateRealm(dt);
+        const calm = this.realmStage === 'none' || this.realmStage === 'done';
+        if (calm) this.trickle();
+        if (calm && !this.queue.length && allDown(this.wave)) {
           if (this.endAt < 0) { this.endAt = this.t; this.realm?.build(); }
           if (this.t - this.endAt > 2) { this.endAt = -1; if (this.phase === 'wave1') this.startWave(2); else if (this.phase === 'wave2') this.startWave(3); else this.startWarden(); }
         }
@@ -434,7 +527,7 @@ export class TempleEncounter {
       bar.style.left = `${(q.x * 0.5 + 0.5) * innerWidth}px`; bar.style.top = `${(-q.y * 0.5 + 0.5) * innerHeight}px`;
       (bar.firstElementChild as HTMLElement).style.width = `${(100 * v!.hp) / HEALTH[b.e.cls]}%`;
     }
-    if (this.phase === 'warden' && this.warden) {
+    if ((this.phase === 'warden' || this.boss.style.display === 'block') && this.warden && this.system.vitals.get(this.warden)) {
       const v = this.system.vitals.get(this.warden);
       if (v) { this.bossFill.style.width = `${(100 * v.hp) / HEALTH.warden}%`; this.meterFill.style.width = `${Math.min(100, (100 * v.meter) / BOSS.posture)}%`; }
       // Phase changes (boss phases 2 and 3): a short caption, no cutscene.

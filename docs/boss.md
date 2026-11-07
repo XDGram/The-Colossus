@@ -50,19 +50,26 @@ phase 3 (Thunder Step, Wrath). Each is a spell (one at a time; he keeps the atta
 
 ## The Warden's realm
 
-When the Warden comes out for the last fight and closes in (within 7.5 m, or after 6 s), the temple **glitches** —
-slice tears, RGB split, block corruption, scanlines and flicker (`src/core/post.ts`, the final grade pass) — and at
-the peak the world swaps to the **Forgotten Valley** (the existing valley scene, `src/world/valleyWorld.ts`): an open
-meadow on the east slope facing the Colossus (`REALM` in `src/world/realm.ts`, 22 m fighting radius). The music
-crossfades to the valley track; the temple track pauses where it was.
+The fight keeps shifting between the temple and the **Forgotten Valley** (the existing valley scene,
+`src/world/valleyWorld.ts`): an open meadow on the east slope facing the Colossus (`REALM` in `src/world/realm.ts`,
+22 m fighting radius). Each shift is a **glitch** — slice tears, RGB split, block corruption, scanlines and flicker
+(`src/core/post.ts`, the final grade pass) — with the worlds swapping at its peak. The music crossfades to the valley
+track; the temple track pauses where it was and resumes on return.
+
+- **Raids (mid-wave):** near the end of each wave (every soldier of it in the field and 2–4 still standing), lightning
+  strikes beside the player and the Warden is there. A beat later the temple tears into the valley, taking the player,
+  the Warden and the surviving soldiers. He fights unleashed alongside them until **28 s**, or he loses **12%** of his
+  health, or (his soldiers down) after 14 s; then he withdraws in smoke, the realm shatters, and the player is back in
+  the courtyard where they were, finishing the wave. His health carries over between raids and into the final fight.
+- **The final fight:** when he comes out after wave 3 and closes in (within 7.5 m, or after 6 s), the realm takes them
+  once more, until **38 s**, or he loses **20%**, or he falls below 30%; the fight then ends in the temple.
 
 In the realm he is **unleashed**: every power, decisions 2–3× faster, cooldowns 1.5× faster, the powers weighted ×3.2,
-and no phase changes. After **38 s**, or when his health falls to **67%**, the realm shatters (the same glitch) and
-the fight returns to the temple courtyard; the temple music resumes and his phases carry on from there.
+and no phase changes (they happen in the temple).
 
-- **Loading:** the valley's models and textures download during wave 1; it is built (terrain in time slices) in the
-  lull after a wave is cleared, hidden, with its own colliders, and its shaders are compiled in the background. If it
-  is not ready 20 s into the Warden fight (slow connection), the fight stays in the temple.
+- **Loading:** the valley's models and textures download and it is built (terrain in time slices) while the menu and
+  opening are up, hidden, with its own colliders, and its shaders are compiled in the background. A raid only happens
+  once it is ready (on a slow connection the early raids are skipped; the final fight waits up to 20 s).
 - **Swap:** the shared collider set exchanges contents with the valley's (`Colliders.swapWith`), the ground functions
   are swapped, the temple's objects and Gravity Rupture craters are hidden (the temple's craters come back on return;
   craters made in the valley stay there). Nothing can hit anyone during the glitch.
