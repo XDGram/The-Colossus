@@ -104,6 +104,36 @@ export class Spells implements HazardSource {
     this.vfx.burst('fire_02', p, { count: 10, color: FX_COLORS.fire, life: 0.4, size: 0.9, size1: 0.2, speed: 3, up: 1 });
     this.vfx.spawn('circle_05', p, { color: FX_COLORS.fireCore, life: 0.18, size: 2.2, size1: 0.8 });
   }
+  /**
+   * Ash kunai (the Runners' power): three glowing blades in a narrow fan toward `at`, 16 m/s, up to 14 m; each hits the
+   * player once (runner.kunai: 4, blocked 1, not parryable); walls stop them. Ember-red, unlike the player's cyan.
+   */
+  kunai(owner: EnemyBrain, from: THREE.Vector3, at: THREE.Vector3) {
+    const base = at.clone().sub(from).setY(0); if (base.lengthSq() < 1e-4) base.set(0, 0, 1); base.normalize();
+    const y0 = from.y, y1 = at.y;
+    this.w.sound?.('whoosh', from);
+    // One volley hits at most once (the first blade to connect; the others are spent).
+    const volley = { hit: false };
+    for (const ang of [-0.13, 0, 0.13]) {
+      const dir = base.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), ang), key = this.key('kunai');
+      const pos = from.clone(); let travelled = 0;
+      const me: Spell = { owner, t: 0, done: false, end: () => {}, step: (dt, out) => {
+        const d = 16 * dt; pos.addScaledVector(dir, d); travelled += d; pos.y = THREE.MathUtils.lerp(y0, y1, Math.min(1, travelled / 6));
+        // Glowing blade and a short ember trail.
+        this.vfx.spawn('circle_05', pos, { color: FX_COLORS.fireCore, life: 0.04, size: 0.42, alpha: 1, alpha1: 1 });
+        this.vfx.spawn('spark_06', pos, { color: FX_COLORS.fire, life: 0.05, size: 0.3, stretch: 3, alpha: 1, alpha1: 1, rot: Math.PI / 2 });
+        this.vfx.spawn('fire_01', pos.clone(), { color: FX_COLORS.ember, life: 0.28, size: 0.34, size1: 0.06, alpha: 0.9 });
+        const g = this.w.height(pos.x, pos.z);
+        if (volley.hit || this.w.blocks(pos.x, pos.y, pos.z) || travelled > 14) {
+          this.vfx.burst('spark_04', pos, { count: 5, color: FX_COLORS.fire, life: 0.25, size: 0.18, size1: 0.03, speed: 3, up: 1 });
+          me.done = true; this.hits.endAttack(key); return;
+        }
+        for (const ev of this.hits.sweepBody(key, owner.id, new THREE.Vector3(pos.x, g, pos.z), { radius: 0.12, bottom: pos.y - g - 0.12, top: pos.y - g + 0.12 }))
+          if (ev.target === 'player') { volley.hit = true; out.push({ key, table: 'runner.kunai', from: pos.clone(), source: owner }); this.vfx.burst('spark_04', pos, { count: 6, color: FX_COLORS.fire, life: 0.2, size: 0.2, size1: 0.03, speed: 3 }); me.done = true; this.hits.endAttack(key); return; }
+      } };
+      this.list.push(me);
+    }
+  }
   /** A burning strip along the ground from `a` in direction `dir` (left by the flame-line cut). Hurts after 0.25 s, ticks every 0.5 s. */
   flameLine(owner: EnemyBrain, a: THREE.Vector3, dir: THREE.Vector3) {
     const S = SPELL.flame, d = dir.clone().setY(0).normalize(), start = this.ground(a.clone().addScaledVector(d, 0.6));

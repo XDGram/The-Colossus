@@ -86,6 +86,15 @@ export class PlayerCombat {
   spiritKind: SpiritKind | null = null;
   private spiritBuf: SpiritKind | null = null; private spiritBufT = 0;
   private clipAt: number | null = null;
+  /** Combat events for effects and camera (leap landing, knocked flying). */
+  onEvent: ((e: 'leapLand' | 'knockdown', p: THREE.Vector3) => void) | null = null;
+  private spinBase = 0; private leapLanded = false;
+  /** Living enemy positions (feet) for the soft lock (set by the game). */
+  targets: (() => THREE.Vector3[]) | null = null;
+  /** Step-in toward the soft-locked enemy at the start of a cut (metres over 0.02–0.22 s). */
+  private stepIn = 0;
+  /** Travelling moves (spin, leap) stretch their drive to reach a soft-locked enemy (×1–2). */
+  private driveBoost = 1;
 
   constructor(private player: Player, clips: THREE.AnimationClip[]) {
     for (const c of clips) this.clips.set(c.name, c);
@@ -228,6 +237,15 @@ export class PlayerCombat {
       this.pelvis.position.z = THREE.MathUtils.lerp(this.pelvis.position.z, this.pelvisRest.z, this.cur.w);
     }
     // Update from the player root (its transform was just moved this frame), so weapon positions are current.
+    // Spinning slash: the body turns a full circle through the cut. Leaping slam: the body jumps and lands on the strike.
+    const model = this.player.model;
+    if (this.state === 'attack' && this.move === 'spin') {
+      const k = THREE.MathUtils.smoothstep(this.t, 0.05, 0.42);
+      this.player.setFacing(this.spinBase + Math.PI * 2 * k);
+    }
+    if (this.state === 'attack' && this.move === 'leap' && this.t < 0.46) model.position.y = Math.sin(Math.PI * this.t / 0.46) * 1.05;
+    else if (model.position.y !== 0) model.position.y = 0;
+    if (this.state === 'attack' && this.move === 'leap' && this.t >= 0.46 && !this.leapLanded) { this.leapLanded = true; this.onEvent?.('leapLand', this.player.position.clone()); }
     this.player.object.updateMatrixWorld(true);
     if (this.state === 'spirit') { this.spirit?.pose(dt); this.player.object.updateMatrixWorld(true); }
     // Active hit window (for the shared hit resolver). The blade is tracked every frame so the first active frame has a previous position.
@@ -272,7 +290,7 @@ export class PlayerCombat {
     }
     this.damage(h.damage);
     if (this.hp <= 0) return this.die();
-    if (h.weight === 'heavy') this.knockdown();
+    if (h.weight === 'heavy') this.knockdown(h.from);
     else { this.react('flinch', h.weight === 'light' ? 'Hit_Chest' : 'Hit_Head', REACT.flinch); this.pushFrom(h.from, REACT.flinchPush[h.weight]); }
     this.log(`hit (${h.damage}, ${h.weight})`);
     return 'hit';
@@ -318,8 +336,8 @@ export class PlayerCombat {
       else if (this.t < m.chain[0] - BUFFER) { this.dropped = true; this.queued = false; this.log(`${this.move} chain dropped (mash)`); }
     }
     if (m.chain && m.next && this.queued && !this.dropped && this.t >= m.chain[0]) { this.startMove(m.next, aim); return; }
-    // Block may cancel the tail (recovery) of the finisher, lunge and riposte.
-    if (held && m.active && this.t >= m.active[1] + BLOCK.blockCancelAfter && !m.chain) { this.enterBlock(); return; }
+    // Block may cancel the tail (recovery) of the finisher, lunge, riposte and leap (moves without a recovery clip).
+    if (held && m.active && this.t >= m.active[1] + BLOCK.blockCancelAfter && (!m.chain || !m.rec)) { this.enterBlock(); return; }
     void dodge;
     if (this.t >= end) {
       if (m.rec) {
@@ -328,14 +346,44 @@ export class PlayerCombat {
       } else this.toFree();
     }
   }
+  /**
+   * Soft lock for the sword: the enemy nearest the aim (within 65° and 3.6 m) becomes the cut's target; the cut turns to
+   * him and steps in to keep him in reach (so a combo connects even as each hit pushes him back).
+   */
+  private softLock(aim: THREE.Vector3) {
+    const P = this.player.position;
+    let best: THREE.Vector3 | null = null, bestScore = Infinity;
+    for (const q of this.targets?.() ?? []) {
+      const to = q.clone().sub(P).setY(0), d = to.length();
+      if (d < 0.2 || d > 3.6) continue;
+      const ang = to.normalize().angleTo(aim);
+      if (ang > 1.13) continue;
+      const score = ang * 2 + d;
+      if (score < bestScore) { bestScore = score; best = q; }
+    }
+    if (!best) return null;
+    const to = best.clone().sub(P).setY(0), d = to.length();
+    return { dir: to.normalize(), step: THREE.MathUtils.clamp(d - 1.05, 0, 1.4) };
+  }
   private startMove(name: PlayerMoveName, aim: THREE.Vector3) {
     const m = PLAYER_MOVES[name];
+    this.stepIn = 0; this.driveBoost = 1;
+    if (name !== 'roll' && name !== 'lunge') {
+      const lock = this.softLock(aim);
+      if (lock) {
+        aim = lock.dir;
+        // Combo cuts step in; counters (riposte, kick, heavy slash) only turn to the target and keep their footing.
+        if (!m.drive && (name === 'cut1' || name === 'cut2' || name === 'cut3')) this.stepIn = lock.step;
+        else if (m.drive) this.driveBoost = THREE.MathUtils.clamp((lock.step + 0.2) / (m.drive?.dist ?? 1), 1, 2);
+      }
+    }
     this.move = name; this.queued = false; this.dropped = false; this.instance++;
     this.parryT = 0; this.lowering = 0;
     if (name === 'riposte') this.riposteT = 0;
     if (name === 'roll') this.rollCool = ROLL.cooldown;
     this.dir.copy(aim);
     this.player.setFacing(Math.atan2(aim.x, aim.z));
+    this.spinBase = this.player.facing; this.leapLanded = false;
     this.setState(name === 'roll' ? 'roll' : 'attack');
     this.play(m.clip, m.from ?? 0, m.speed ?? 1);
     this.log(`start ${name}`);
@@ -349,9 +397,20 @@ export class PlayerCombat {
     const d = this.clips.get(clip)!.duration;
     this.play(clip, 0, Math.min(1, d / len));
   }
-  private knockdown() {
+  /** Heavy hits knock the player flying: launched up and back, falling under gravity into the knockdown. */
+  private knockdown(from?: THREE.Vector3) {
     this.move = null; this.parryT = 0; this.setState('knockdown');
     this.play('Hit_Knockback', 0, 1);
+    if (from) {
+      const away = this.player.position.clone().sub(from).setY(0);
+      // A blow from straight above (lightning) has no direction: fall backwards from where he faces.
+      if (away.lengthSq() < 0.01) away.set(-Math.sin(this.player.facing), 0, -Math.cos(this.player.facing));
+      away.normalize();
+      this.push = { v: away.multiplyScalar(2.6 / 0.5), until: this.clock + 0.5 };
+      this.player.setFacing(Math.atan2(-away.x, -away.z));   // facing the attacker: the fall goes backwards
+      this.player.launch(5.2);
+      this.onEvent?.('knockdown', this.player.position.clone());
+    }
   }
   private die(): HitOutcome {
     this.move = null; this.setState('dead'); this.play('Death01', 0, 1); this.log('DEAD'); return 'killed';
@@ -375,7 +434,8 @@ export class PlayerCombat {
     this.push = null;
     const m = this.move ? PLAYER_MOVES[this.move] : null;
     if (m?.drive && (this.state === 'attack' || this.state === 'roll') && this.t >= m.drive.from && this.t <= m.drive.to)
-      return this.dir.clone().multiplyScalar(m.drive.dist / (m.drive.to - m.drive.from));
+      return this.dir.clone().multiplyScalar((m.drive.dist * (this.state === 'attack' ? this.driveBoost : 1)) / (m.drive.to - m.drive.from));
+    if (this.stepIn > 0 && this.state === 'attack' && this.t >= 0.02 && this.t <= 0.22) return this.dir.clone().multiplyScalar(this.stepIn / 0.2);
     if (this.state === 'spirit') return this.spirit?.drive() ?? new THREE.Vector3();
     if (this.state !== 'free' && this.state !== 'block') return new THREE.Vector3();
     return null;

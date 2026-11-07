@@ -211,7 +211,9 @@ if (want('spells')) {
     }
     return out;
   });
-  check('Lightning at a player who stands still: 3 strikes of 22 (knockdown)', lt.idle.n === 3 && lt.idle.amounts.every((a) => a === DOC.lightning), JSON.stringify(lt.idle));
+  // Heavy hits now knock the player flying (up and back), so a strike can carry him out of the next circle: at least
+  // the first lands, each one for 22 with a knockdown.
+  check('Lightning at a player who stands still: strikes of 22 (knockdown)', lt.idle.n >= 1 && lt.idle.n <= 3 && lt.idle.amounts.every((a) => a === DOC.lightning) && lt.idle.pstates.every((s) => s === 'knockdown'), JSON.stringify(lt.idle));
   check('Lightning: the first strike lands 1.0 s after its warning appears', lt.idle.first >= 0.3 + 0.25 + DOC.lightningWarn - TOL.frame, `first strike ${f2(lt.idle.first)} s after the cast began (tell 0.3 + marker at 0.25 + 1.0 warning)`);
   check('Lightning: a player who keeps moving is not hit', lt.move.n === 0, JSON.stringify(lt.move));
   r = await S('move', 'raise', 4, 'block', 3, 3.2, true);

@@ -50,7 +50,12 @@ const TELL: Record<string, { tell: number; hit: string }> = {
   lunge: { tell: 0.4, hit: 'runner.lunge' }, pommel: { tell: 0.3, hit: 'runner.pommel' }, spin: { tell: 0.35, hit: 'runner.spin' },
   sweep: { tell: 0.4, hit: 'breaker.sweep1' }, smash: { tell: 0.35, hit: 'breaker.smash' },
   charge: { tell: 0.6, hit: 'breaker.charge' }, stamp: { tell: 0.15, hit: 'breaker.stamp' },
+  kunai: { tell: 0.45, hit: 'runner.kunai' },
 };
+/** Enemy powers provided by the game (projectiles live in the spell system). */
+export const POWERS: { kunai: ((b: EnemyBrain, from: THREE.Vector3, at: THREE.Vector3) => void) | null } = { kunai: null };
+/** Ash kunai: thrown from 2.5–9 m, at most every 8 s per Runner. */
+const KUNAI = { min: 2.5, max: 9, cooldown: 8, chance: 0.22, release: 0.22 };
 export const SPACING = 1.6;
 
 const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
@@ -169,10 +174,12 @@ export class EnemyBrain {
 
   // ------------------------------------------------------------------ per frame
   protected others: EnemyBrain[] = [];
+  protected kunaiCool = 3; protected thrown = false;
   update(dt: number, now: number, player: PlayerView, others: EnemyBrain[]) {
     this.others = others;
     this.stateT += dt;
     this.dodgeCool = Math.max(0, this.dodgeCool - dt);
+    this.kunaiCool = Math.max(0, this.kunaiCool - dt);
     const me = this.effective();
     const toP = player.position.clone().sub(me).setY(0);
     const dist = toP.length();
@@ -211,7 +218,7 @@ export class EnemyBrain {
       }
       case 'engage': {
         // Close in for a melee attack, then start it when the director allows (and the player can see the tell).
-        const range = this.attack === 'lunge' ? 3.2 : this.e.cls === 'runner' ? 1.25 : 2.2;
+        const range = this.attack === 'kunai' ? KUNAI.max : this.attack === 'lunge' ? 3.2 : this.e.cls === 'runner' ? 1.25 : 2.2;
         if (dist > range) want = toP.clone().normalize().multiplyScalar(this.e.cls === 'runner' ? (dist > range + 1.2 ? this.p.jog : this.p.walk * 1.4) : this.p.walk * (dist > 3.5 ? 2 : 1));
         else if (this.director.tryStart(this.id, this.e.cls, now, this.tellPoints())) this.beginTell();
         // Not given a turn yet: stay in, facing the player, and try again (no backing away).
@@ -226,6 +233,11 @@ export class EnemyBrain {
       }
       case 'attack':
         face = null;
+        // Ash kunai leave the hand mid-throw, aimed where the player is.
+        if (this.attack === 'kunai' && !this.thrown && this.e.time >= KUNAI.release) {
+          this.thrown = true; this.kunaiCool = KUNAI.cooldown;
+          POWERS.kunai?.(this, this.e.weapons()[0].hilt, player.position.clone().setY(player.position.y + 1.1));
+        }
         if (this.e.move !== this.attack) { this.release(); this.attack = null; this.set('reposition'); }
         break;
       case 'reposition': {
@@ -274,6 +286,8 @@ export class EnemyBrain {
       const r = this.rnd() - (this.director.breakerAttacking() ? 0.1 : 0);
       let pick = r < 0.45 ? (this.rnd() < 0.5 ? 'slash' : 'slash2') : r < 0.7 ? 'flurry' : r < 0.85 ? 'lunge' : r < 0.95 ? 'pommel' : 'spin';
       if (pick === 'lunge' && (dist < 2 || dist > 4)) pick = 'slash';
+      // Their power: a fan of ash kunai from range (when it's off cooldown and the game provides it).
+      if (POWERS.kunai && this.kunaiCool <= 0 && dist >= KUNAI.min && dist <= KUNAI.max && this.rnd() < KUNAI.chance) pick = 'kunai';
       this.attack = pick; this.set('engage');
     } else {
       const toE = me.clone().sub(player.position).setY(0).normalize();
@@ -297,6 +311,7 @@ export class EnemyBrain {
     else { this.attack = null; this.nextDecision = 0.4; }
   }
   protected beginTell() {
+    this.thrown = false;
     this.set('tell');
     this.e.play(this.attack as never, 0.12);
     this.e.frozen = true; this.e.time = 0; // hold the first frame of the attack as the warning pose

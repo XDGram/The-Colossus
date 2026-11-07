@@ -138,6 +138,8 @@ async function main() {
   let startPos: { x: number; z: number };
   let startYaw: number;
   let configureCamera: (c: ThirdPersonCamera, p: Player) => void = () => {};
+  /** The sealed main gate (temple): its doors can swing open for the opening cinematic. */
+  let gate: { open(k: number): void; solid(on: boolean): void } | null = null;
   sun.position.copy(atmo.sunDir).multiplyScalar(300);
   sun.target.position.set(0, 0, 0);
   const templeLayers: ScatterLayer[] = [];
@@ -161,13 +163,23 @@ async function main() {
       const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
       const mat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.85 });
       const gz = 47.62, gy = templeHeight(0, gz);
+      // Each leaf hangs on a hinge at its outer edge so the opening cinematic can swing the doors open (inward).
+      const hinges: THREE.Group[] = [];
       for (const sx of [-1, 1]) {
+        const hinge = new THREE.Group(); hinge.position.set(sx * 2.76, gy, gz); scene.add(hinge);
         const leaf = new THREE.Mesh(new THREE.BoxGeometry(2.76, 5.0, 0.16), mat);
-        leaf.position.set(sx * 1.38, gy + 2.5 + 0.3, gz); leaf.castShadow = leaf.receiveShadow = true; scene.add(leaf);
+        leaf.position.set(-sx * 1.38, 2.5 + 0.3, 0); leaf.castShadow = leaf.receiveShadow = true; hinge.add(leaf);
+        hinges.push(hinge);
       }
       const bar = new THREE.Mesh(new THREE.BoxGeometry(5.8, 0.28, 0.24), new THREE.MeshStandardMaterial({ color: 0x1c1410, roughness: 0.7 }));
       bar.position.set(0, gy + 2.4, gz - 0.16); bar.castShadow = true; scene.add(bar);
-      colliders.addBox(0, gz, 5.6, 0.5, 0, gy - 1, gy + 6);
+      const gateCol = colliders.addBox(0, gz, 5.6, 0.5, 0, gy - 1, gy + 6);
+      const top = gateCol.top;
+      gate = {
+        // 0 = shut, 1 = wide open (about 80° inward); the bar lifts away while open.
+        open: (k: number) => { hinges[0].rotation.y = 1.4 * k; hinges[1].rotation.y = -1.4 * k; bar.visible = k < 0.05; },
+        solid: (on: boolean) => { gateCol.top = on ? top : -1e4; },
+      };
     }
     fog.near = FOG.density * 0.45; // crisper, brighter air than the valley
     scene.add(temple.group);
@@ -381,6 +393,8 @@ async function main() {
     const { CombatSystem } = await import('./combat/system');
     combatSystem = new CombatSystem(hitWorld, player, combat, arena.brains);
     const home = player.position.clone(), homeYaw = player.facing;
+    // Soft lock for the sword: living enemies' feet.
+    combat.targets = () => arena!.brains.filter((b) => !b.dead && !b.removed && b.e.object.visible).map((b) => b.effective());
     combatSystem.onRestart = () => { player.teleport(home.x, home.z); player.setFacing(homeYaw); arena!.reset(); restartMusic(); };
     // Enemies spawned later (the Warden's summon) join the combat loop; the encounter replaces this with its own.
     arena.onSpawn = (b) => combatSystem!.add(b);
@@ -399,6 +413,9 @@ async function main() {
     const sound = (n: string, at?: THREE.Vector3) => audio.play(n as import('./audio/audio').SoundName, at);
     const spells = new Spells(hitWorld, vfx, { height: groundAt, blocks: (x, y, z) => colliders.blocks(x, y, z), player, push: (from, d) => combat!.pushFrom(from, d), sound });
     combatSystem.hazards = spells;
+    // The Ash Runners' power: thrown kunai, flown and swept by the spell system.
+    const { POWERS } = await import('./combat/brain');
+    POWERS.kunai = (b, from, at) => spells.kunai(b, from, at);
     // Supernatural abilities (docs/abilities.md): Phantom Step, Colossus Rift, Gravity Rupture.
     {
       const [{ SpiritFx }, { Abilities }, { SpiritHud }] = await Promise.all([import('./fx/spirit'), import('./player/abilities'), import('./ui/spirithud')]);
@@ -413,6 +430,15 @@ async function main() {
       combatSystem.onAbilityHit = (h, b, r) => ab.onHit(h, b, r);
       spiritFx.debris.onLand = (p) => ab.debrisLanded(p);
       if (!isTouch) spiritHud = new SpiritHud();
+      // Combo and knockdown impacts: the leap's landing kicks up a dust ring; being knocked flying jolts the camera.
+      const dustC = new THREE.Color(0.55, 0.5, 0.44);
+      combat.onEvent = (e, p) => {
+        if (e === 'leapLand') {
+          vfx!.burst('smoke_04', p.clone().setY(p.y + 0.1), { count: 10, color: dustC, life: 0.7, size: 0.7, size1: 1.8, speed: 3.5, up: 0.3, alpha: 0.45, drag: 3, normal: true, flat: true });
+          vfx!.decal('circle_03', p, { color: new THREE.Color(0.9, 0.85, 0.75), size: 1.2, life: 0.35, fadeIn: 0.01, fadeOut: 0.3, alpha: 0.5, grow: 9 });
+          tpc.shake(0.07, 0.2); sound('debris', p);
+        } else { tpc.shake(0.14, 0.4); sound('debris', p); }
+      };
     }
     const ar = arena;
     Object.assign(arena.bossCtx, {
@@ -439,8 +465,9 @@ async function main() {
     // Retry after a defeat: the music starts again from the beginning.
     const retry = encounter.retry.bind(encounter);
     encounter.retry = () => { restartMusic(); retry(); };
-    tpc.snap(player.position);   // the opening starts the player just inside the gate
+    tpc.snap(player.position);   // the opening starts the player outside the gate
     encounter.onShake = (a, t) => tpc.shake(a, t);
+    encounter.doors = gate;
   }
   // Development showcase of the invaders (temple only, ?enemies): no AI or combat.
   let enemyShowcase: import('./enemies/showcase').EnemyShowcase | null = null;
@@ -529,12 +556,15 @@ async function main() {
   const stats = { fps: 0, calls: 0, tris: 0 };
 
   let paused = false;
+  let cineFrom: [THREE.Vector3, THREE.Quaternion] | null = null;
   let debugCam: [number[], [number, number, number]] | null = null;
   const update = (dt: number) => {
     t += dt;
     abilities?.tick(dt);
     // Opening cinematic: the encounter walks the player in from the gate; input waits until the fight starts.
     const cine = started ? encounter?.cinematic ?? null : null;
+    // An attack press skips ahead in the opening.
+    if (cine && input.consumeAttack()) encounter!.skipIntro();
     combat?.preUpdate(dt, input, tpc.yaw, started && !cine);
     if (cine) { player.control.drive = cine.drive.clone(); player.control.lockMove = true; player.control.locomotion = 1; }
     player.update(dt, input, tpc.yaw, started && !cine);
@@ -550,10 +580,21 @@ async function main() {
     combatSystem?.update(dt);
     vfx?.update(dt);
     spiritFx?.update(dt);
-    if (abilities) { const r = abilities.readiness(); input.spiritStatus(r); spiritHud?.update(r, started && combat?.state !== 'dead'); }
+    if (abilities) { const r = abilities.readiness(); input.spiritStatus(r); spiritHud?.update(r, started && combat?.state !== 'dead' && !encounter?.cinematic); }
     if (started) encounter?.update(dt);
     if (debugCam) { camera.position.fromArray(debugCam[0]); camera.lookAt(...debugCam[1]); }
-    else tpc.update(dt, input, player.position, Math.hypot(player.velocity.x, player.velocity.z));
+    else if (cine?.cam) {
+      // Opening shots; the gameplay camera is kept behind the warrior, ready for the hand-over.
+      camera.position.copy(cine.cam.pos); camera.lookAt(cine.cam.look);
+      tpc.yaw = player.facing + Math.PI; tpc.snap(player.position); cineFrom = [camera.position.clone(), camera.quaternion.clone()];
+    } else {
+      tpc.update(dt, input, player.position, Math.hypot(player.velocity.x, player.velocity.z));
+      // Hand-over from the last opening shot to the gameplay camera.
+      if (cine && cine.blend >= 0 && cine.blend < 1 && cineFrom) {
+        const k = cine.blend * cine.blend * (3 - 2 * cine.blend);
+        camera.position.lerpVectors(cineFrom[0], camera.position, k); camera.quaternion.slerpQuaternions(cineFrom[1], camera.quaternion, k);
+      }
+    }
     setVegetationTime(t);
     setFoliageTime(t);
     fog.far = t;

@@ -18,14 +18,16 @@ export type RunnerReaction = 'flinch' | 'stagger' | 'knockdown';
 export interface Reaction { lean: number; twist: number; knock: number; runner: RunnerReaction; lift?: number }
 
 export const REACTIONS: Record<PlayerMoveName, Reaction> = {
-  cut1: { lean: 0.32, twist: 0.12, knock: 0.3, runner: 'flinch' },
-  cut2: { lean: 0.34, twist: -0.14, knock: 0.35, runner: 'flinch' },
+  cut1: { lean: 0.32, twist: 0.12, knock: 0.2, runner: 'flinch' },
+  cut2: { lean: 0.34, twist: -0.14, knock: 0.22, runner: 'flinch' },
   cut3: { lean: 0.5, twist: 0.2, knock: 0.9, runner: 'stagger' },
   lunge: { lean: 0.48, twist: 0, knock: 1.0, runner: 'stagger' },
   riposte: { lean: 0.6, twist: 0.25, knock: 1.0, runner: 'stagger' },
   heavy: { lean: 0.62, twist: 0.3, knock: 1.2, runner: 'stagger' },
   kick: { lean: 0.55, twist: 0, knock: 1.4, runner: 'stagger' },
   roll: { lean: 0, twist: 0, knock: 0, runner: 'flinch' },
+  spin: { lean: 0.45, twist: 0.9, knock: 0.8, runner: 'stagger' },
+  leap: { lean: 0.7, twist: 0.1, knock: 1.4, runner: 'knockdown', lift: 3.5 },
   // Abilities.
   phantom: { lean: 0.35, twist: 1.1, knock: 0.6, runner: 'stagger' },
   rift: { lean: 0.75, twist: 0.2, knock: 2.6, runner: 'knockdown' },

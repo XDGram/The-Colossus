@@ -200,7 +200,12 @@ export class CombatSystem {
       for (const ev of evs) if (ev.target === 'player') this.enemyHitsPlayer(b, def, hitKey(tableOf(b), e.move, n), ev);
     });
   }
+  private lastPlayerHit = -1;
   private enemyHitsPlayer(b: EnemyBrain, def: typeof ENEMY_HITS[string], name: string, ev: HitEvent) {
+    // Fairness: hits never stack in one frame. With up to three attackers, two swings can rarely connect on the same
+    // frame; the second glances off.
+    if (this.lastPlayerHit === this.time) { this.note('glanced (same frame)', b.id, 0, name); return; }
+    this.lastPlayerHit = this.time;
     const hpBefore = this.combat.hp;
     const out = this.combat.receiveHit({ damage: def.damage, blocked: def.blocked, parryable: def.parryable, weight: def.weight, from: b.effective() });
     this.note(`player ${out}`, b.id, hpBefore - this.combat.hp, `${name} -> player hp ${this.combat.hp} [${ev.key}]`);
@@ -214,6 +219,9 @@ export class CombatSystem {
   }
   /** A spell hazard hits the player: same block / parry / dodge rules as a weapon hit, from the hazard's position. */
   private applyToPlayer(src: EnemyBrain | null, def: EnemyHitDef, name: string, from: THREE.Vector3, key: string) {
+    // Thrown kunai never land in the same frame as another hit (hits never stack in one frame).
+    if (name === 'runner.kunai' && this.lastPlayerHit === this.time) { this.note('kunai deflected (same frame)', src?.id ?? 'hazard'); return; }
+    this.lastPlayerHit = this.time;
     const hpBefore = this.combat.hp;
     const out = this.combat.receiveHit({ damage: def.damage, blocked: def.blocked, parryable: def.parryable, weight: def.weight, from });
     this.note(`player ${out}`, src?.id ?? 'hazard', hpBefore - this.combat.hp, `${name} -> player hp ${this.combat.hp} [${key}]`);

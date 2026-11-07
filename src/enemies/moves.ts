@@ -32,7 +32,7 @@ export interface MoveDef {
 }
 
 export type RunnerMove = 'idle' | 'walk' | 'jog' | 'sprint' | 'slash' | 'slash2' | 'flurry' | 'finisher' | 'lunge' | 'pommel'
-  | 'spin' | 'parry' | 'roll' | 'hop' | 'stepL' | 'stepR' | 'flinchChest' | 'flinchHead' | 'knockdown' | 'deathA' | 'deathB';
+  | 'spin' | 'parry' | 'roll' | 'hop' | 'stepL' | 'stepR' | 'flinchChest' | 'flinchHead' | 'knockdown' | 'deathA' | 'deathB' | 'kunai';
 export type BreakerMove = 'idle' | 'walk' | 'guard' | 'sweep' | 'smash' | 'charge' | 'guardBreak' | 'shudder' | 'stamp'
   | 'stagger' | 'deathA' | 'deathB';
 
@@ -51,6 +51,8 @@ export const RUNNER: Record<RunnerMove, MoveDef> = {
   // Spin: active 0.45-0.62 s (t 0.535 ± 0.085) while the retimed turn sweeps the full circle; nothing lands before 0.45 s.
   spin: { segs: [{ clip: 'Sword_Idle' }], duration: 0.95, layer: 'runnerSpin', hits: [{ t: 0.535, window: 0.085, reach: 1.1, arc: 360, damage: 10 }], openFrom: 0.62, recovery: 0.33 },
   parry: { segs: [{ clip: 'Sword_Block' }] },
+  // Ash kunai throw: the hook's arm whip read as a throw (the kunai leave the hand at 0.22 s; src/boss/spells.ts).
+  kunai: { segs: [{ clip: 'Melee_Hook' }, { clip: 'Melee_Hook_Rec' }], openFrom: 0.35, recovery: 0.6 },
   roll: { segs: [{ clip: 'Roll' }] },
   hop: { segs: [{ clip: 'NinjaJump_Start', to: 0.6 }, { clip: 'NinjaJump_Land', from: 0.5 }] },
   stepL: { segs: [{ clip: 'Sword_Idle' }], duration: 0.5, layer: 'runnerStepL' },

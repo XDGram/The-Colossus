@@ -31,6 +31,9 @@ const CSS = `
 #hud .cap { position: absolute; left: 50%; top: 18%; transform: translateX(-50%); max-width: 80vw; text-align: center; font-family: Georgia, serif; font-size: clamp(16px, 2.4vw, 24px); text-shadow: 0 2px 6px #000; opacity: 0; transition: opacity 0.4s; }
 #hud .cap.show { opacity: 1; }
 #hud .cap b { display: block; font-family: Inter, sans-serif; font-size: 11px; letter-spacing: 0.22em; color: #c9a35b; margin-bottom: 6px; }
+#cinebars { position: fixed; inset: 0; pointer-events: none; z-index: 6; opacity: 0; transition: opacity 0.6s; }
+#cinebars i { position: absolute; left: 0; right: 0; height: 11vh; background: #000; }
+#cinebars i:first-child { top: 0; } #cinebars i:last-child { bottom: 0; }
 #flash { position: fixed; inset: 0; background: #e8f0ff; opacity: 0; pointer-events: none; z-index: 6; transition: opacity 0.5s ease-out; }
 #endscreen { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; flex-direction: column; gap: 18px; background: rgba(6,6,6,0.72); z-index: 20; color: #ece6d8; font-family: Georgia, serif; text-align: center; padding: 16px; }
 #endscreen h2 { margin: 0; font-size: clamp(26px, 5vw, 44px); font-weight: normal; letter-spacing: 0.06em; }
@@ -56,7 +59,10 @@ export class TempleEncounter {
    * Opening cinematic (set while it plays): the game walks the player in from the gate (`drive`, m/s) and ignores
    * input. Null once the fight has started.
    */
-  cinematic: { drive: THREE.Vector3 } | null = null;
+  cinematic: { drive: THREE.Vector3; cam: { pos: THREE.Vector3; look: THREE.Vector3 } | null; blend: number } | null = null;
+  /** The sealed main gate (doors swing open in the opening; set by the game). */
+  doors: { open(k: number): void; solid(on: boolean): void } | null = null;
+  private bars: HTMLElement;
   /** Camera shake hook (the thunderclap). */
   onShake: ((amount: number, time: number) => void) | null = null;
   private flash: HTMLElement;
@@ -79,6 +85,7 @@ export class TempleEncounter {
     this.boss = this.hud.querySelector('.boss')!; this.bossFill = this.boss.querySelector('.fill.red')!; this.meterFill = this.boss.querySelector('.fill.meter')!;
     this.end = document.createElement('div'); this.end.id = 'endscreen'; document.body.appendChild(this.end);
     this.flash = document.createElement('div'); this.flash.id = 'flash'; document.body.appendChild(this.flash);
+    this.bars = document.createElement('div'); this.bars.id = 'cinebars'; this.bars.innerHTML = '<i></i><i></i>'; document.body.appendChild(this.bars);
     this.startIntro();
   }
 
@@ -91,11 +98,15 @@ export class TempleEncounter {
     this.cap.classList.add('show'); this.capUntil = this.t + secs;
   }
 
-  /** Where the player starts the opening: just inside the sealed gate, walking in. */
-  static readonly INTRO_START = { x: 0, z: 45.8 };
+  /** Where the player starts the opening: outside the sealed gate, about to walk in through it. */
+  static readonly INTRO_START = { x: 0, z: 51.2 };
+  /** Where he stops, facing the Warden up the courtyard. */
+  static readonly INTRO_STOP = 42.6;
+  /** Opening length (s); an attack press after 1.5 s skips ahead to the lightning. */
+  static readonly INTRO_END = 9.8;
   private startIntro() {
     this.phase = 'intro'; this.t = 0; this.introDone.clear(); this.pre = [];
-    // The player walks in through the gate; the Warden stands far up the courtyard, facing him.
+    // The Warden waits up the courtyard, facing the gate.
     const p = new THREE.Vector3(0, 0, 31.5);
     this.warden = this.arena.spawn('warden', p, this.faceHome(p));
     this.wardenUpdate = this.warden.update.bind(this.warden);
@@ -104,38 +115,82 @@ export class TempleEncounter {
     w.e.play('guard' as never, 0);
     this.system.drop(w); // not a target during the confrontation
     this.player.teleport(TempleEncounter.INTRO_START.x, TempleEncounter.INTRO_START.z); this.player.setFacing(this.home.yaw);
-    this.cinematic = { drive: new THREE.Vector3(Math.sin(this.home.yaw), 0, Math.cos(this.home.yaw)).multiplyScalar(1.6) };
+    this.cinematic = { drive: new THREE.Vector3(), cam: null, blend: -1 };
+  }
+  /** Skip ahead to the lightning (any attack press during the opening, after its first 1.5 s). */
+  skipIntro() {
+    if (this.phase !== 'intro' || !this.cinematic || this.t < 1.5 || this.t >= 7.3) return;
+    this.t = 7.3; this.player.teleport(0, TempleEncounter.INTRO_STOP); this.player.setFacing(this.home.yaw);
+    this.doors?.open(0); this.doors?.solid(true); this.introDone.add('doorsShut');
   }
   /**
-   * The opening, timed from the moment the fight starts: walk in (0–3 s), the Warden speaks, lightning strikes him
-   * and he vanishes (3.6 s), his soldiers burst out of the smoke where he stood (4.0–4.8 s), the fight begins (5.2 s).
+   * The opening, timed from the moment the fight starts (letterboxed, input off):
+   *  A 0–2.6 s   low inside the courtyard looking back at the gate: the doors swing open on the light and the warrior
+   *              strides through;
+   *  B 2.6–5.0   tracking over his shoulder as he walks toward the Warden, who waits up the courtyard; the doors
+   *              boom shut behind him;
+   *  C 5.0–7.2   the Warden, close: “This temple is ours now. You should not have returned.”;
+   *  D 7.2–9.0   wide across the courtyard: lightning strikes him, he vanishes in smoke, his soldiers burst out of it;
+   *  E 9.0–9.8   the camera settles behind the warrior and the fight begins.
    */
-  private updateIntro() {
-    const t = this.t, w = this.warden!, ctx = this.arena.bossCtx, once = (k: string) => (this.introDone.has(k) ? false : (this.introDone.add(k), true));
-    if (this.cinematic && t > 2.6) this.cinematic.drive.set(0, 0, 0);
-    if (t > 0.6 && once('speak')) this.caption('THE TEMPLE WARDEN', '“This temple is ours now. You should not have returned.”', 3.2);
-    const wp = w.e.object.position.clone();
-    if (t > 3.6 && once('strike')) {
-      // The storm answers him: a lightning strike, a white flash, thunder.
+  private updateIntro(dt: number) {
+    const t = this.t, w = this.warden!, ctx = this.arena.bossCtx, cine = this.cinematic!, P = this.player.position;
+    const once = (k: string) => (this.introDone.has(k) ? false : (this.introDone.add(k), true));
+    const ease = (x: number) => { const k = THREE.MathUtils.clamp(x, 0, 1); return k * k * (3 - 2 * k); };
+    const wp = new THREE.Vector3(0, w.e.object.position.y, 31.5), head = wp.clone().setY(wp.y + 1.62);
+    if (once('open')) { this.doors?.solid(false); this.cineBars(true); }
+    // Doors: open 0.2–1.7 s, shut 4.9–5.5 s (with a boom), solid again once shut.
+    if (!this.introDone.has('doorsShut')) {
+      const k = t < 4.9 ? ease((t - 0.2) / 1.5) : 1 - ease((t - 4.9) / 0.6);
+      this.doors?.open(k);
+      if (t > 1.0 && once('doorSound')) ctx.sound?.('roar', new THREE.Vector3(0, 1, 47.6));
+      if (t >= 5.5) { this.introDone.add('doorsShut'); this.doors?.open(0); this.doors?.solid(true); ctx.sound?.('debris', new THREE.Vector3(0, 1, 47.6)); this.onShake?.(0.05, 0.25); }
+    }
+    // Walk: from 0.6 s, at 1.9 m/s, stopping at INTRO_STOP.
+    cine.drive.set(0, 0, t > 0.6 && P.z > TempleEncounter.INTRO_STOP ? -1.9 : 0);
+    if (t < 2.6) cine.cam = { pos: new THREE.Vector3(2.4 - t * 0.25, 0.55 + t * 0.05, 41.6), look: new THREE.Vector3(0.3, 2.1 - t * 0.2, 48) };
+    else if (t < 5.0) {
+      const k = (t - 2.6) / 2.4;
+      cine.cam = { pos: new THREE.Vector3(P.x + 0.9 - 0.2 * k, P.y + 1.55, P.z + 2.4 - 0.4 * k), look: head.clone().lerp(new THREE.Vector3(P.x, P.y + 1.4, P.z - 3), 0.15) };
+    } else if (t < 7.2) {
+      const k = (t - 5.0) / 2.2, toP = new THREE.Vector3(P.x - wp.x, 0, P.z - wp.z).normalize(), side = new THREE.Vector3(toP.z, 0, -toP.x);
+      cine.cam = { pos: head.clone().addScaledVector(toP, 2.6 - 0.5 * k).addScaledVector(side, 0.7).add(new THREE.Vector3(0, -0.12, 0)), look: head.clone().add(new THREE.Vector3(0, -0.05, 0)) };
+      if (once('speak')) this.caption('THE TEMPLE WARDEN', '“This temple is ours now. You should not have returned.”', 2.4);
+    } else if (t < 9.0) {
+      const k = (t - 7.2) / 1.8;
+      cine.cam = { pos: new THREE.Vector3(-5.2 + 1.2 * k, 4.6 - 0.6 * k, 40.5 - 0.6 * k), look: new THREE.Vector3(0, 1.1, 32.5) };
+    } else { cine.cam = null; cine.blend = Math.min(1, (t - 9.0) / 0.8); }
+    if (t > 7.5 && once('strike')) {
+      // The storm answers him: lightning, a white flash, thunder, smoke.
       ctx.vfx?.bolt(wp, 22, 2.6); ctx.vfx?.bolt(wp.clone().add(new THREE.Vector3(0.5, 0, 0.3)), 20, 1.8);
       ctx.vfx?.bolt(wp.clone().add(new THREE.Vector3(-0.6, 0, -0.2)), 18, 1.4);
       ctx.vfx?.spawn('star_06', wp.clone().setY(wp.y + 1.2), { color: new THREE.Color(0.93, 0.88, 1.0), life: 0.35, size: 7, size1: 2, alpha: 1, rot: 0 });
       ctx.vfx?.burst('smoke_07', wp.clone().setY(wp.y + 0.6), { count: 14, color: new THREE.Color(0.1, 0.08, 0.12), life: 1.4, size: 1.6, size1: 3.4, speed: 3, up: 0.6, alpha: 0.9, drag: 2 });
-      ctx.sound?.('thunder', wp); this.flashScreen();
-      this.onShake?.(0.12, 0.5);
+      ctx.sound?.('thunder', wp); this.flashScreen(); this.onShake?.(0.12, 0.5);
     }
-    if (t > 3.75 && once('vanish')) {
+    if (t > 7.65 && once('vanish')) {
       ctx.vfx?.puff(wp, false); ctx.sound?.('vanish', wp);
       w.e.object.visible = false; w.e.object.position.y -= 50; w.update = () => {};
     }
-    // His soldiers appear out of the smoke where he stood.
-    for (let i = 0; i < 3; i++) if (t > 4.0 + i * 0.35 && once(`summon${i}`)) {
+    for (let i = 0; i < 3; i++) if (t > 7.95 + i * 0.32 && once(`summon${i}`)) {
       const a = (i - 1) * 0.9, q = wp.clone().add(new THREE.Vector3(Math.sin(a) * 2.2, 0, Math.cos(a) * 2.2 + 1.2));
       const b = this.arena.spawn('runner', q, this.faceHome(q));
       ctx.vfx?.puff(b.e.object.position, true); ctx.sound?.('appear', q);
       this.pre.push(b);
+      // They hold until the fight begins.
+      const up = b.update.bind(b); b.update = (d, ...r) => (this.cinematic ? b.e.update(d) : up(d, ...r));
     }
-    if (t > 5.2) { this.cinematic = null; this.startWave(1); }
+    void dt;
+    if (t >= TempleEncounter.INTRO_END) {
+      this.cinematic = null; this.cineBars(false);
+      if (!this.introDone.has('doorsShut')) { this.doors?.open(0); this.doors?.solid(true); }
+      this.startWave(1);
+    }
+  }
+  /** Letterbox bars for the opening. */
+  private cineBars(on: boolean) {
+    this.bars.style.opacity = on ? '1' : '0';
+    this.hud.style.visibility = on ? 'hidden' : 'visible';
   }
   private flashScreen() {
     this.flash.style.transition = 'none'; this.flash.style.opacity = '0.85';
@@ -196,7 +251,8 @@ export class TempleEncounter {
 
   /** Clean restart after a defeat: same courtyard start, wave 1 again. */
   retry() {
-    this.end.style.display = 'none'; this.endAt = -1; this.bossPhase = 1; this.cinematic = null; this.pre = [];
+    this.end.style.display = 'none'; this.endAt = -1; this.bossPhase = 1; this.cinematic = null; this.pre = []; this.cineBars(false);
+    this.doors?.open(0); this.doors?.solid(true);
     this.arena.bossCtx.spells?.clear();
     this.arena.clear(); this.warden = null; this.wave = [];
     this.boss.style.display = 'none';
@@ -226,7 +282,7 @@ export class TempleEncounter {
     if (this.t > this.capUntil) this.cap.classList.remove('show');
     const allDown = (bs: EnemyBrain[]) => bs.length > 0 && bs.every((b) => b.dead);
     switch (this.phase) {
-      case 'intro': this.updateIntro(); break;
+      case 'intro': this.updateIntro(dt); break;
       case 'wave1': case 'wave2': case 'wave3': {
         this.trickle();
         if (!this.queue.length && allDown(this.wave)) {

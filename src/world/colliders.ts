@@ -19,7 +19,9 @@ export class Colliders {
   }
 
   addBox(x: number, z: number, w: number, d: number, rot: number, bottom: number, top: number) {
-    this.insert({ kind: 'box', x, z, hw: w / 2, hd: d / 2, rot, bottom, top, cos: Math.cos(rot), sin: Math.sin(rot) });
+    const c: Collider = { kind: 'box', x, z, hw: w / 2, hd: d / 2, rot, bottom, top, cos: Math.cos(rot), sin: Math.sin(rot) };
+    this.insert(c);
+    return c;
   }
 
   private insert(c: Collider) {

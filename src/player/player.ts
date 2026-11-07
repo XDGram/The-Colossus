@@ -57,6 +57,11 @@ export class Player {
   get facing() { return this.yaw; }
   setFacing(yaw: number) { this.yaw = yaw; this.object.rotation.y = yaw; }
 
+  /** Throw the body up (m/s); gravity brings it down (heavy hits knock the player flying). */
+  launch(up: number) { this.position.y += 0.12; this.vy = Math.max(this.vy, up); }
+  /** True while off the ground. */
+  get airborne() { return this.vy !== 0; }
+
   teleport(x: number, z: number) {
     const g = ground.height(x, z);
     this.position.set(x, Math.max(g, this.colliders.floorAt(x, z, g + 2.5)), z);

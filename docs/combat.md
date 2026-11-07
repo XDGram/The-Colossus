@@ -172,6 +172,19 @@ The parry window (0.18 s) and roll invulnerability (0.33 s) both fit inside ever
 
 **Player poise:** none. Every unblocked hit lands its reaction (light or medium flinch, heavy knockdown). The 0.35 s flinch gives a little invulnerability, so one hit isn't followed by a free combo.
 
+### 1.4 Extended light chain, soft lock and knock-flying (revised)
+
+- **Five-move light chain:** Cut 1 → Cut 2 → Cut 3 (unchanged values) → **Spinning slash** (press again 0.80–1.05 s
+  into the finisher: the wide two-handed sweep carried through a full 360° turn, hits all round, 12 damage, poise 20,
+  meter 12) → **Leaping slam** (press 0.30–0.49 s into the spin: the body jumps about 1 m and lands on the overhead
+  cut, 22 damage, poise break, meter 22, knocks Runners down; a dust ring and camera jolt on landing).
+- **Soft lock:** each cut turns to the enemy nearest the aim (within 65° and 3.6 m). Combo cuts step in to keep him in
+  reach (each hit pushes him back); the spin and leap stretch their travel (up to ×2) to reach him. Counters (riposte,
+  kick, heavy slash) only turn and keep their footing.
+- **Knocked flying:** heavy enemy hits (Breaker smash, charge, stamp; the Warden's heavy attacks and lightning) launch
+  the player about 0.7 m up and 2.6 m back before the knockdown (a blow from above throws him backwards).
+- **Hits never stack in one frame:** with up to three attackers, a second hit landing on the same frame glances off.
+
 ### 6.1 Hit reactions (revised)
 
 Every hit that lands now gets a visible reaction that matches the attack (`src/combat/reactions.ts`):
@@ -216,6 +229,12 @@ Interrupted by `Dodge / Parry / Block / Flinch / Stagger / Dead`.
 - Runners prefer to attack while the Breaker is recovering.
 - Enemies keep 1.6 m apart and stay out of a swinging Breaker's arc.
 - Off-screen enemies don't start attacks.
+
+### 7.1 Ash Runner power: ash kunai
+
+From 2.5–9 m, off an 8 s cooldown (22 % of decisions when in range), a Runner throws three glowing ember kunai in a
+narrow fan (red, unparryable warning glint, 0.45 s tell). 16 m/s, up to 14 m, walls stop them. One volley hits at most
+once: 4 damage (blocked 1). Roll through, block, or step aside.
 
 ## 8. Death and defeat
 

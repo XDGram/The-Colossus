@@ -24,6 +24,8 @@ export interface PlayerMove {
   drive?: { dist: number; from: number; to: number };
 }
 export type PlayerMoveName = 'cut1' | 'cut2' | 'cut3' | 'lunge' | 'riposte' | 'roll' | 'heavy' | 'kick'
+  // Extended light chain after the finisher: a spinning slash, then a leaping slam.
+  | 'spin' | 'leap'
   // Supernatural abilities (docs/abilities.md): hit sources driven by src/player/abilities.ts, not katana sweeps.
   | 'phantom' | 'rift' | 'rupture' | 'implode';
 
@@ -32,7 +34,15 @@ export const PLAYER_MOVES: Record<PlayerMoveName, PlayerMove> = {
     rec: { clip: 'Sword_Regular_A_Rec', length: 0.45 }, vulnerableUntil: 0.88, damage: 8, poise: 10, meter: 6 },
   cut2: { clip: 'Sword_Regular_B', to: 0.53, active: [0.24, 0.3], chain: [0.37, 0.53], next: 'cut3',
     rec: { clip: 'Sword_Regular_B_Rec', length: 0.5 }, vulnerableUntil: 1.03, damage: 8, poise: 10, meter: 6 },
-  cut3: { clip: 'Sword_Regular_C', to: 1.3, active: [0.62, 0.72], vulnerableUntil: 1.3, damage: 16, poise: 25, meter: 15 },
+  // The finisher may chain on (press again in 0.80–1.05 s) into the spin and the leap.
+  cut3: { clip: 'Sword_Regular_C', to: 1.3, active: [0.62, 0.72], chain: [0.8, 1.05], next: 'spin', vulnerableUntil: 1.3, damage: 16, poise: 25, meter: 15 },
+  // Spinning slash: the wide two-handed sweep of Sword_Heavy_Combo (0.45–0.82 s, blade held out at 1.5–1.9 m, chest
+  // height) carried through a full 360° turn of the body, so it hits all round.
+  spin: { clip: 'Sword_Heavy_Combo', from: 0.45, to: 0.92, speed: 0.95, active: [0.04, 0.38], chain: [0.3, 0.49], next: 'leap',
+    rec: { clip: 'Sword_Regular_A_Rec', length: 0.4 }, vulnerableUntil: 0.86, damage: 12, poise: 20, meter: 12, drive: { dist: 0.8, from: 0.05, to: 0.4 } },
+  // Leaping slam: the big overhead cut from its wind-up while the body jumps forward, landing on the strike.
+  leap: { clip: 'Sword_Regular_C', from: 0.3, to: 1.08, speed: 0.75, active: [0.38, 0.52], vulnerableUntil: 1.04, damage: 22, poise: 'break', meter: 22,
+    drive: { dist: 2.2, from: 0.02, to: 0.46 } },
   lunge: { clip: 'Sword_Dash', to: 1.2, active: [0.28, 0.4], vulnerableUntil: 1.2, damage: 14, poise: 20, meter: 10,
     drive: { dist: 2.0, from: 0.05, to: 0.38 } },
   // Sword_Regular_C at 1.15x: hit 0.54-0.63 s, free at 1.13 s (move time).
@@ -86,6 +96,8 @@ export const ENEMY_HITS: Record<string, EnemyHitDef> = {
   'runner.lunge': { damage: 12, blocked: 3, parryable: true, weight: 'medium' },
   'runner.pommel': { damage: 5, blocked: 1, parryable: true, weight: 'light' },
   'runner.spin': { damage: 10, blocked: 3, parryable: false, weight: 'light' },
+  // Ash kunai (the Runners' power): three thrown in a fan, each hit separately; block, roll or step aside.
+  'runner.kunai': { damage: 4, blocked: 1, parryable: false, weight: 'light' },
   'breaker.sweep1': { damage: 12, blocked: 3, parryable: true, weight: 'medium' },
   'breaker.sweep2': { damage: 12, blocked: 3, parryable: true, weight: 'medium' },
   'breaker.sweep3': { damage: 14, blocked: 4, parryable: true, weight: 'medium' },
