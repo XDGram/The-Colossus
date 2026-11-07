@@ -92,7 +92,24 @@ export class Input {
     }
     const R = 52;
     sprint.addEventListener('touchstart', (e) => { this.sprintHeld = !this.sprintHeld; sprint.classList.toggle('on', this.sprintHeld); e.preventDefault(); e.stopPropagation(); }, { passive: false });
+    // A touch can end without the page being told (entering full screen, rotating, a system gesture, switching apps).
+    // The stick would then stay "held" forever and ignore new touches, so any touch the browser no longer lists is
+    // released before a new one is assigned, and everything is released when the page loses focus or changes mode.
+    const releaseStick = () => { this.stick.id = -1; this.stick.x = this.stick.y = 0; base.style.opacity = '0.35'; knob.style.transform = 'translate(0px,0px)'; };
+    const releaseAll = () => { releaseStick(); this.lookTouch.id = -1; };
+    const prune = (list: TouchList) => {
+      const live = new Set(Array.from(list).map((t) => t.identifier));
+      if (this.stick.id >= 0 && !live.has(this.stick.id)) releaseStick();
+      if (this.lookTouch.id >= 0 && !live.has(this.lookTouch.id)) this.lookTouch.id = -1;
+    };
+    for (const ev of ['fullscreenchange', 'webkitfullscreenchange', 'visibilitychange']) document.addEventListener(ev, releaseAll);
+    for (const ev of ['blur', 'orientationchange', 'pagehide']) addEventListener(ev, releaseAll);
+    // Touches that end anywhere (also over the buttons) are seen here too.
+    const endAnywhere = (e: TouchEvent) => prune(e.touches);
+    document.addEventListener('touchend', endAnywhere, { capture: true });
+    document.addEventListener('touchcancel', endAnywhere, { capture: true });
     el.addEventListener('touchstart', (e) => {
+      prune(e.touches);
       for (const t of Array.from(e.changedTouches)) {
         if (t.clientX < innerWidth * 0.45 && this.stick.id < 0) {
           Object.assign(this.stick, { id: t.identifier, ox: t.clientX, oy: t.clientY, x: 0, y: 0 });
@@ -122,7 +139,7 @@ export class Input {
     }, { passive: false });
     const end = (e: TouchEvent) => {
       for (const t of Array.from(e.changedTouches)) {
-        if (t.identifier === this.stick.id) { this.stick.id = -1; this.stick.x = this.stick.y = 0; base.style.opacity = '0.35'; }
+        if (t.identifier === this.stick.id) releaseStick();
         if (t.identifier === this.lookTouch.id) this.lookTouch.id = -1;
       }
     };
