@@ -9,7 +9,7 @@ const CSS = `
 #spirit-hud { position: fixed; left: max(18px, env(safe-area-inset-left)); bottom: max(22px, env(safe-area-inset-bottom)); display: flex; gap: 10px; z-index: 5; pointer-events: none;
   font-family: Inter, system-ui, sans-serif; opacity: 0; transition: opacity 0.4s; }
 #spirit-hud.show { opacity: 1; }
-#spirit-hud .ab { position: relative; width: 54px; text-align: center; color: #e6f7ff; }
+#spirit-hud .ab { position: relative; width: 64px; text-align: center; color: #e6f7ff; }
 #spirit-hud .gem { position: relative; width: 46px; height: 46px; margin: 0 auto; border-radius: 50%; overflow: hidden;
   background: radial-gradient(circle at 50% 40%, rgba(40,90,120,0.55), rgba(8,14,20,0.75)); border: 1px solid rgba(140,225,255,0.45);
   box-shadow: 0 0 0 1px rgba(0,0,0,0.35), 0 0 10px rgba(80,210,255,0.0); transition: box-shadow 0.25s, border-color 0.25s; }
@@ -20,7 +20,7 @@ const CSS = `
 #spirit-hud .ab:not(.ready) svg { stroke: rgba(150,200,220,0.55); filter: none; }
 #spirit-hud .key { position: absolute; right: 0; top: -4px; min-width: 16px; height: 16px; border-radius: 3px; background: rgba(8,12,16,0.85); border: 1px solid rgba(170,240,255,0.6);
   font-size: 10px; font-weight: 600; line-height: 15px; color: #dff7ff; }
-#spirit-hud .nm { margin-top: 4px; font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; opacity: 0.85; text-shadow: 0 1px 2px #000; white-space: nowrap; }
+#spirit-hud .nm { margin-top: 4px; font-size: 8.5px; line-height: 1.25; letter-spacing: 0.1em; text-transform: uppercase; opacity: 0.85; text-shadow: 0 1px 2px #000; white-space: normal; }
 `;
 // Original line icons: a dash with afterimages, a crescent wave, a blade driven into concentric rings.
 const ICONS: Record<SpiritKind, string> = {

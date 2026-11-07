@@ -19,18 +19,20 @@ type Phase = 'intro' | 'wave1' | 'wave2' | 'wave3' | 'warden' | 'victory' | 'def
 
 const CSS = `
 #hud { position: fixed; inset: 0; pointer-events: none; font-family: Inter, system-ui, sans-serif; color: #ece6d8; z-index: 5; }
-#hud .pbar { position: absolute; left: max(18px, env(safe-area-inset-left)); top: 16px; width: min(34vw, 260px); }
+#hud .pbar { position: absolute; left: max(16px, env(safe-area-inset-left)); top: max(12px, env(safe-area-inset-top)); width: min(22vw, 230px); }
 #hud .lbl { font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; opacity: 0.85; margin-bottom: 4px; text-shadow: 0 1px 2px #000; }
-#hud .track { height: 9px; background: rgba(10,10,10,0.55); border: 1px solid rgba(236,230,216,0.35); border-radius: 2px; overflow: hidden; }
+#hud .track { margin: 0; width: auto; height: 9px; background: rgba(10,10,10,0.55); border: 1px solid rgba(236,230,216,0.35); border-radius: 2px; overflow: hidden; }
 #hud .fill { height: 100%; background: linear-gradient(#c9a35b, #9a7a3c); transition: width 0.15s; }
 #hud .fill.red { background: linear-gradient(#b8463a, #7d2a22); }
 #hud .fill.meter { background: linear-gradient(#e9dcc0, #b9ab8c); }
 #hud .ebar { position: absolute; width: 64px; height: 5px; margin-left: -32px; background: rgba(10,10,10,0.6); border: 1px solid rgba(236,230,216,0.3); }
 #hud .ebar > div { height: 100%; background: #b8463a; }
-#hud .boss { position: absolute; left: 50%; transform: translateX(-50%); bottom: max(26px, env(safe-area-inset-bottom)); width: min(70vw, 520px); display: none; text-align: center; }
-#hud .boss .track { height: 8px; margin-bottom: 4px; }
+/* Boss bar: across the top of the screen, out of the way of the fight and the touch controls. */
+#hud .boss { position: absolute; left: 50%; transform: translateX(-50%); top: max(12px, env(safe-area-inset-top)); width: min(40vw, 460px); display: none; text-align: center; }
+#hud .boss .lbl { margin-bottom: 3px; }
+#hud .boss .track { height: 7px; margin-bottom: 3px; }
 #hud .boss .meter { height: 4px; }
-#hud .cap { position: absolute; left: 50%; top: 18%; transform: translateX(-50%); max-width: 80vw; text-align: center; font-family: Georgia, serif; font-size: clamp(16px, 2.4vw, 24px); text-shadow: 0 2px 6px #000; opacity: 0; transition: opacity 0.4s; }
+#hud .cap { position: absolute; left: 50%; top: 22%; transform: translateX(-50%); max-width: 80vw; text-align: center; font-family: Georgia, serif; font-size: clamp(16px, 2.4vw, 24px); text-shadow: 0 2px 6px #000; opacity: 0; transition: opacity 0.4s; }
 #hud .cap.show { opacity: 1; }
 #hud .cap b { display: block; font-family: Inter, sans-serif; font-size: 11px; letter-spacing: 0.22em; color: #c9a35b; margin-bottom: 6px; }
 #cinebars { position: fixed; inset: 0; pointer-events: none; z-index: 6; opacity: 0; transition: opacity 0.6s; }
