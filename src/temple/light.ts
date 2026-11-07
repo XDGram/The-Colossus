@@ -55,7 +55,7 @@ export class SunBeams {
         void main() {
           vec3 v = normalize(cameraPosition - vW);
           // Soft core: bright where the view grazes through the beam's centre, nothing at its silhouette.
-          float core = pow(abs(dot(normalize(vN), v)), 2.2);
+          float core = pow(clamp(abs(dot(normalize(vN), v)), 0.0, 1.0), 2.2);
           float t = vUv.y;
           float along = smoothstep(0.0, 0.18, t) * (1.0 - smoothstep(0.45, 1.0, t));
           float dust = 0.65 + 0.35 * n2(vec2(t * 40.0 - uTime * 0.25, vUv.x * 50.0 + uTime * 0.05));

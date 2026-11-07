@@ -29,8 +29,13 @@ class GodRaysPass extends Pass {
       fragmentShader: /* glsl */ `
         uniform sampler2D tDiffuse; uniform sampler2D tDepth; uniform vec2 uSun; uniform float uVisible; uniform vec3 uColor; uniform float uIntensity;
         varying vec2 vUv;
+        // Safety: an invalid (NaN / infinite) or absurdly bright pixel from an effect is cleaned here, before the bloom
+        // sees it; otherwise the bloom blur spreads one bad pixel over the whole screen and the picture goes black
+        // (iPhone GPUs produce NaN where others quietly give 0). NaN fails every comparison, so it falls to 0.
+        vec3 clean(vec3 c) { return vec3(c.r >= 0.0 ? min(c.r, 48.0) : 0.0, c.g >= 0.0 ? min(c.g, 48.0) : 0.0, c.b >= 0.0 ? min(c.b, 48.0) : 0.0); }
         void main() {
           vec4 base = texture2D(tDiffuse, vUv);
+          base.rgb = clean(base.rgb);
           if (uVisible <= 0.001) { gl_FragColor = base; return; }
           const int N = ${samples};
           vec2 delta = (uSun - vUv) * (0.92 / float(N));
@@ -45,7 +50,7 @@ class GodRaysPass extends Pass {
             vec2 ds = (uv - uSun) * vec2(1.6, 1.0);
             // Tight glow around the sun's disk only (a wide halo washed out the whole screen when facing the sun).
             float glow = exp(-dot(ds, ds) * 90.0) * 4.0 + exp(-dot(ds, ds) * 18.0) * 0.18;
-            vec3 s = (min(texture2D(tDiffuse, uv).rgb, vec3(3.0)) * 0.25 + glow) * sky;
+            vec3 s = (min(clean(texture2D(tDiffuse, uv).rgb), vec3(3.0)) * 0.25 + glow) * sky;
             acc += s * decay;
             decay *= 0.965;
           }

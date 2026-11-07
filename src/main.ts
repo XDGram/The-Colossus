@@ -617,16 +617,19 @@ async function main() {
    * resolution steps down (to at most 60% of the device's), and with headroom above 57 fps it steps back up. Graphics
    * settings stay the same; the picture only gets slightly softer when the device is struggling, so play stays smooth.
    */
-  let resScale = 1, resT = performance.now(), resFrames = 0, resChanged = 0;
+  let resScale = 1, resT = performance.now(), resFrames = 0, resChanged = 0, resLow = 0;
   const adaptResolution = () => {
     if (!started || paused || document.hidden) { resT = performance.now(); resFrames = 0; return; }
     resFrames++;
     const now = performance.now(), span = now - resT;
     if (span < 1000) return;
     const f = (resFrames * 1000) / span; resT = now; resFrames = 0;
-    if (now - resChanged < 1500) return;
+    // Only a sustained drop counts (two slow seconds in a row), and at most one change every 4 s, so a single heavy
+    // moment (a big ability) never makes the picture jump.
+    resLow = f < 50 ? resLow + 1 : 0;
+    if (now - resChanged < 4000) return;
     let next = resScale;
-    if (f < 50) next = Math.max(0.6, resScale - (f < 35 ? 0.15 : 0.08));
+    if (resLow >= 2) next = Math.max(0.6, resScale - (f < 35 ? 0.15 : 0.08));
     else if (f > 57 && resScale < 1) next = Math.min(1, resScale + 0.05);
     if (next === resScale) return;
     resScale = next; resChanged = now;

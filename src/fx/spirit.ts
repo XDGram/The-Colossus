@@ -180,7 +180,7 @@ varying float vAge; varying float vSide; varying float vU;
 ${NOISE}${RAMP}
 void main() {
   float age = clamp(vAge / uLife, 0.0, 1.0);
-  float across = 1.0 - abs(vSide * 2.0 - 1.0);              // 0 at the edges, 1 at the centre line
+  float across = clamp(1.0 - abs(vSide * 2.0 - 1.0), 0.0, 1.0);  // 0 at the edges, 1 at the centre line
   float streak = fbm(vec2(vAge * 18.0 - uTime * 6.0, vSide * 5.0));
   float core = pow(across, 3.0);
   float k = clamp(core * 1.1 + streak * 0.3 - age * 0.5, 0.0, 1.0);
@@ -247,12 +247,12 @@ varying vec2 vUv;
 ${NOISE}${RAMP}
 void main() {
   float u = vUv.x, v = vUv.y;                       // u along the arc (0..1), v across the band (0..1)
-  float taper = pow(sin(3.14159 * u), 0.75);          // thin, sharp tips
+  float taper = pow(max(sin(3.14159 * u), 0.0), 0.75); // thin, sharp tips (pow of a negative is NaN on some GPUs)
   float d = abs(v - 0.5) * 2.0 / max(taper, 0.02);  // 0 on the core line, 1 at the band edge
   if (d > 1.0) discard;
   float n = fbm(vec2(u * 9.0 + uTime * 3.0, v * 3.0 - uTime * 7.0));
   float core = exp(-d * d * 10.0);
-  float body = pow(1.0 - d, 1.6);
+  float body = pow(max(1.0 - d, 0.0), 1.6);
   float k = clamp(core + body * 0.45 + (n - 0.5) * 0.35, 0.0, 1.0);
   float a = (core * 1.6 + body * (0.75 + 0.9 * n)) * uAlpha * smoothstep(0.0, 0.06, u) * smoothstep(1.0, 0.94, u);
   gl_FragColor = vec4(spiritRamp(k, uHot) * a, 1.0);
@@ -329,11 +329,12 @@ void main() {
     // Wall: bright at the ground, fading upward, with rising streaks.
     float h = vUv.y, n = fbm(vec2(vUv.x * 40.0, h * 3.0 - uTime * 5.0));
     // Fades out at the ground (the wave is in the air; the ground itself is never tinted).
-    a = smoothstep(0.0, 0.3, h) * pow(1.0 - h, 1.6) * (0.5 + 0.8 * n); k = clamp((1.0 - h) * 0.9 + n * 0.3, 0.0, 1.0);
+    a = smoothstep(0.0, 0.3, h) * pow(clamp(1.0 - h, 0.0, 1.0), 1.6) * (0.5 + 0.8 * n); k = clamp((1.0 - h) * 0.9 + n * 0.3, 0.0, 1.0);
   } else {
     // Ring: a thin bright leading edge with a soft wake inside.
     float r = length(vUv - 0.5) * 2.0;
-    float edge = exp(-pow((r - 0.96) * 26.0, 2.0)), wake = smoothstep(0.55, 0.96, r) * (1.0 - smoothstep(0.96, 1.0, r));
+    float e0 = (r - 0.96) * 26.0;
+    float edge = exp(-e0 * e0), wake = smoothstep(0.55, 0.96, r) * (1.0 - smoothstep(0.96, 1.0, r));
     float n = fbm(vec2(atan(vUv.y - 0.5, vUv.x - 0.5) * 6.0, r * 4.0 - uTime * 3.0));
     a = edge * 1.4 + wake * 0.35 * n; k = clamp(edge + n * 0.25, 0.0, 1.0);
   }
@@ -583,7 +584,7 @@ uniform float uAlpha; uniform float uTime; uniform float uHot;
 varying vec2 vUv;
 ${NOISE}${RAMP}
 void main() {
-  float across = 1.0 - abs(vUv.x * 2.0 - 1.0);
+  float across = clamp(1.0 - abs(vUv.x * 2.0 - 1.0), 0.0, 1.0);
   float n = fbm(vec2(vUv.x * 3.0, vUv.y * 6.0 - uTime * 5.0));
   float core = pow(across, 8.0), glow = pow(across, 1.8);
   float tipFade = smoothstep(0.0, 0.08, vUv.y) * smoothstep(1.0, 0.85, vUv.y);
