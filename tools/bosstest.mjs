@@ -303,8 +303,9 @@ if (want('fair')) {
     return { maxAtk: st.maxAtk, maxHeavy: st.maxHeavy, exclViol: st.exclViol, spellsAtStart: st.spellsAtStart, minGap: gaps.length ? Math.min(...gaps) : null, same: Object.values(sameFrame).filter((n) => n > 1).length,
       runners: H.A.brains.filter((b) => b.e.cls === 'runner').length, actions: H.B.actionLog.slice(-40).map((x) => x[1]), hits: H.hits().length };
   });
-  check('At most 2 attackers at once, at most 1 of them the Warden', fr.maxAtk <= 2 && fr.maxHeavy <= 1, `max ${fr.maxAtk} attackers, ${fr.maxHeavy} heavy`);
-  check('At least 0.6 s between attack starts', fr.minGap === null || fr.minGap >= 0.6 - 1e-6, `min gap ${f2(fr.minGap)} s`);
+  // Attack permissions (docs/combat.md §7, revised: 3 attackers, 0.4 s apart, so enemies press the player).
+  check('At most 3 attackers at once, at most 1 of them the Warden', fr.maxAtk <= 3 && fr.maxHeavy <= 1, `max ${fr.maxAtk} attackers, ${fr.maxHeavy} heavy`);
+  check('At least 0.4 s between attack starts', fr.minGap === null || fr.minGap >= 0.4 - 1e-6, `min gap ${f2(fr.minGap)} s`);
   check('No Runner starts an attack while the Warden\'s spells or teleport are live', fr.exclViol === 0, `${fr.exclViol} violations`);
   check('He never starts a new spell while one of his spells is live', fr.spellsAtStart === 0, `${fr.spellsAtStart} violations`);
   check('No two hits on the player in the same frame', fr.same === 0, `${fr.hits} hits, ${fr.same} same-frame`);

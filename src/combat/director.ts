@@ -1,11 +1,11 @@
 /**
- * Attack permissions (docs/combat.md §7): at most two enemies attacking at once, at most one of them a Breaker,
- * and at least 0.6 s between attack starts. An enemy holds a ticket from the start of its tell until its attack
+ * Attack permissions (docs/combat.md §7): at most three enemies attacking at once, at most one of them a Breaker,
+ * and at least 0.4 s between attack starts. An enemy holds a ticket from the start of its tell until its attack
  * (including recovery) ends; the tell may only start where the player's camera can see it.
  */
 export type EnemyKind = 'runner' | 'breaker';
 
-export const DIRECTOR = { maxAttackers: 2, maxBreakers: 1, startGap: 0.6 };
+export const DIRECTOR = { maxAttackers: 3, maxBreakers: 1, startGap: 0.4 };
 
 export class AttackDirector {
   private holders = new Map<string, EnemyKind>();
@@ -32,6 +32,8 @@ export class AttackDirector {
     this.holders.set(id, kind); this.lastStart = now; this.starts.push([now, id]);
     return true;
   }
+  /** Would this enemy's warning be visible to the player right now (on screen and unobstructed)? */
+  canSee(id: string, pts: { x: number; y: number; z: number }[]) { return this.visible(pts, id); }
   /** The attack (and its recovery) is over, or the enemy was interrupted / died. */
   release(id: string) { this.holders.delete(id); }
   breakerAttacking() { return [...this.holders.values()].includes('breaker'); }

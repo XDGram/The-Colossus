@@ -3,6 +3,7 @@ import type { Enemy } from '../enemies/enemy';
 import type { AttackDirector } from './director';
 import { ENEMY_HITS } from './tables';
 import { CHARGE_BODY } from './system';
+import { DIRECTOR } from './director';
 
 /**
  * Enemy behaviour (docs/combat.md §7): movement, spacing, attack choice, tells and reactions, driving an Enemy.
@@ -38,7 +39,8 @@ interface Personality {
   ring?: [number, number]; hold?: [number, number];
   decide: [number, number];
 }
-const RUNNER: Personality = { radius: 0.38, walk: 1.6, jog: 4.3, turn: 9, nativeWalk: 1.45, nativeJog: 3.9, ring: [3, 5], decide: [1.2, 2.6] };
+// Runners press in (docs/combat.md §7): they hold a tight 1.8–2.6 m ring facing the player and decide often.
+const RUNNER: Personality = { radius: 0.38, walk: 1.6, jog: 4.3, turn: 9, nativeWalk: 1.45, nativeJog: 3.9, ring: [1.8, 2.6], decide: [0.5, 1.1] };
 // The Temple Warden moves like a Breaker; his body is the slimmer older warrior (native walk at his own scale).
 const BREAKER: Personality = { radius: 0.48, walk: 0.92, jog: 0.92, turn: 1.8, nativeWalk: 1.45 * 1.15 * 0.55, nativeJog: 1.45 * 1.15 * 0.55, hold: [2.0, 2.5], decide: [1.6, 3.0] };
 
@@ -139,7 +141,9 @@ export class EnemyBrain {
   }
 
   // ------------------------------------------------------------------ per frame
+  protected others: EnemyBrain[] = [];
   update(dt: number, now: number, player: PlayerView, others: EnemyBrain[]) {
+    this.others = others;
     this.stateT += dt;
     this.dodgeCool = Math.max(0, this.dodgeCool - dt);
     const me = this.effective();
@@ -165,7 +169,7 @@ export class EnemyBrain {
         const stopAt = this.p.ring ? this.p.ring[1] : this.p.hold![1];
         if (dist <= stopAt) { this.set('hold'); break; }
         // Far away, Breakers march at double pace so they reach the fight from the halls.
-        want = toP.clone().normalize().multiplyScalar(this.e.cls === 'runner' && dist > stopAt + 2 ? this.p.jog : dist > 8 ? this.p.walk * 2 : this.p.walk);
+        want = toP.clone().normalize().multiplyScalar(this.e.cls === 'runner' && dist > stopAt + 1 ? this.p.jog : dist > 3.5 ? this.p.walk * 2 : this.p.walk);
         face = null;
         break;
       }
@@ -173,7 +177,7 @@ export class EnemyBrain {
         if (this.p.ring) { want = this.orbit(me, player, others, dt); face = want.lengthSq() > 0.05 ? null : facePlayer; }
         else want = this.holdLine(me, player, dist);
         this.nextDecision -= dt;
-        if (this.e.cls === 'breaker') { this.farFor = dist > 5 ? this.farFor + dt : 0; if (this.farFor > 3) { this.tryAttack('charge', me, now); break; } }
+        if (this.e.cls === 'breaker') { this.farFor = dist > 5 ? this.farFor + dt : 0; if (this.farFor > 1.5) { this.tryAttack('charge', me, now); break; } }
         if (this.nextDecision <= 0) this.decide(me, player, dist, now);
         if (dist > (this.p.ring ? this.p.ring[1] + 1.5 : this.p.hold![1] + 1.5) && this.state === 'hold') this.set('approach');
         break;
@@ -181,9 +185,10 @@ export class EnemyBrain {
       case 'engage': {
         // Close in for a melee attack, then start it when the director allows (and the player can see the tell).
         const range = this.attack === 'lunge' ? 3.2 : this.e.cls === 'runner' ? 1.25 : 2.2;
-        if (dist > range) want = toP.clone().normalize().multiplyScalar(this.e.cls === 'runner' ? this.p.jog : this.p.walk);
+        if (dist > range) want = toP.clone().normalize().multiplyScalar(this.e.cls === 'runner' ? (dist > range + 1.2 ? this.p.jog : this.p.walk * 1.4) : this.p.walk * (dist > 3.5 ? 2 : 1));
         else if (this.director.tryStart(this.id, this.e.cls, now, this.tellPoints())) this.beginTell();
-        if (this.stateT > 2.5) { this.attack = null; this.set('reposition'); }
+        // Not given a turn yet: stay in, facing the player, and try again (no backing away).
+        if (this.stateT > 1.5) { this.attack = null; this.set('hold'); this.nextDecision = 0.4; }
         break;
       }
       case 'tell': {
@@ -199,7 +204,7 @@ export class EnemyBrain {
       case 'reposition': {
         if (this.e.cls === 'runner') {
           // Back off 2-3 m, then return to circling.
-          if (dist < 3.2 && this.stateT < 1.6) want = toP.clone().normalize().multiplyScalar(-this.p.walk * 1.4);
+          if (dist < 1.8 && this.stateT < 0.45) want = toP.clone().normalize().multiplyScalar(-this.p.walk);
           else this.set('hold');
           face = facePlayer;
         } else if (this.stateT > 0.6) this.set('hold');
@@ -234,6 +239,10 @@ export class EnemyBrain {
   protected decide(me: THREE.Vector3, player: PlayerView, dist: number, now: number) {
     this.nextDecision = THREE.MathUtils.lerp(this.p.decide[0], this.p.decide[1], this.rnd());
     if (this.e.cls === 'runner') {
+      // Only as many Runners step in as there are free attack turns; the rest keep the ring (a crowd pressed onto the
+      // player would hide each other's warnings and nobody could attack).
+      const busy = this.others.filter((o) => o !== this && !o.dead && (o.state === 'engage' || o.state === 'tell' || o.state === 'attack')).length;
+      if (busy >= DIRECTOR.maxAttackers) { this.nextDecision = 0.25; return; }
       // Runners prefer to strike while the Breaker is committed (his attack in progress).
       const r = this.rnd() - (this.director.breakerAttacking() ? 0.1 : 0);
       let pick = r < 0.45 ? (this.rnd() < 0.5 ? 'slash' : 'slash2') : r < 0.7 ? 'flurry' : r < 0.85 ? 'lunge' : r < 0.95 ? 'pommel' : 'spin';
@@ -283,8 +292,9 @@ export class EnemyBrain {
     if (this.orbitFlip <= 0) { this.orbitFlip = 2.5 + this.rnd() * 2.5; if (this.rnd() < 0.45) this.orbitSide *= -1; }
     const rel = me.clone().sub(player.position).setY(0);
     const ang = Math.atan2(rel.x, rel.z);
-    // Preferred angle: the player's flank on our side (about 100 deg from where the player faces).
-    const flank = wrap(player.facing + this.orbitSide * THREE.MathUtils.degToRad(100));
+    // Preferred angle: the player's front quarter on our side (about 45 deg from where the player faces), where the
+    // player sees the warnings, so Runners press the fight instead of lurking on the flanks.
+    const flank = wrap(player.facing + this.orbitSide * THREE.MathUtils.degToRad(45));
     // Stay out of an attacking Breaker's front arc.
     let goal = flank;
     for (const o of others) if (o.e.cls === 'breaker' && o.state === 'attack' || o.e.cls === 'breaker' && o.state === 'tell') {
@@ -293,13 +303,13 @@ export class EnemyBrain {
     }
     const dAng = wrap(goal - ang);
     // Circle briskly (up to 2.6 m/s) while far from the flank, settling to a walk near it.
-    const tangential = THREE.MathUtils.clamp(dAng * 2.5, -1, 1) * (Math.abs(dAng) > 0.8 ? 2.6 : this.p.walk);
+    const tangential = THREE.MathUtils.clamp(dAng * 2.5, -1, 1) * (Math.abs(dAng) > 0.8 ? 1.6 : this.p.walk * 0.6);
     const radial = THREE.MathUtils.clamp((this.radiusWant - rel.length()) * 1.5, -this.p.walk, this.p.walk);
     const out = rel.clone().normalize(), tan = new THREE.Vector3(out.z, 0, -out.x).multiplyScalar(-1);
     const v = tan.multiplyScalar(tangential).addScaledVector(out, radial);
     this.target.copy(player.position).add(new THREE.Vector3(Math.sin(goal) * this.radiusWant, 0, Math.cos(goal) * this.radiusWant));
-    if (v.length() > 2.6) v.setLength(2.6);
-    return v.length() < 0.25 ? new THREE.Vector3() : v;
+    if (v.length() > 2.0) v.setLength(2.0);
+    return v.length() < 0.3 ? new THREE.Vector3() : v;
   }
   /** Breaker: hold 2-2.5 m in front of the player, guard up, adjusting slowly. */
   protected holdLine(me: THREE.Vector3, player: PlayerView, dist: number) {

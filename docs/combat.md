@@ -13,7 +13,7 @@ Clip lengths quoted are measured from that file.
 | Desktop | Left mouse = Attack, Right mouse = Block/Parry (hold = block, press = parry), Space = Dodge, Shift = Sprint |
 | Mobile | Add Attack, Dodge and Block buttons. The existing joystick and RUN button are not moved, resized or restyled; the new buttons sit in free space on the right side |
 | Camera | Unchanged: no shake, no lock-on |
-| Coordination | Max 2 enemies attacking at once (max 1 Breaker), 0.6 s between attack starts, Breaker anchors / Runners flank |
+| Coordination | Max 3 enemies attacking at once (max 1 Breaker), 0.4 s between attack starts, Breaker anchors / Runners press in from the flanks |
 
 ## What exists / what's missing
 
@@ -179,13 +179,13 @@ Interrupted by `Dodge / Parry / Block / Flinch / Stagger / Dead`.
 
 | | Ash Runner | Iron Breaker |
 |---|---|---|
-| Hold | Circles at 3–5 m, works to the player's flank/back | Advances to 2–2.5 m, guard up, faces the player |
+| Hold | Presses in to 1.8–2.6 m facing the player, drifting toward the flank/back; if not given a turn, stays in and tries again (no backing off) | Advances to 2–2.5 m, guard up, faces the player; marches at double pace beyond 3.5 m |
 | Choice in range | slash 45%, flurry 25%, lunge (2–4 m) 15%, pommel (close) 10%, spin (player behind or surrounded) 5% | sweep 50%, smash 35% (front), stamp (player close/behind), charge (player > 5 m for 3 s) |
 | Reacts to player attack in range | side-step/roll 35% (3 s cooldown), parry 15% (+ anti-mash bonus) | guard blocks frontal Cut 1/2 when not attacking |
 | After attacking | Backs off 2–3 m | Holds ground, guard up |
 
 **Teamwork:**
-- At most 2 enemies attack at once (1 Breaker), with 0.6 s between starts, so hits never land together.
+- At most 3 enemies attack at once (1 Breaker), with 0.4 s between starts, so hits never land together. (Revised from 2 / 0.6 s so enemies press the player instead of circling.)
 - Runners prefer to attack while the Breaker is recovering.
 - Enemies keep 1.6 m apart and stay out of a swinging Breaker's arc.
 - Off-screen enemies don't start attacks.

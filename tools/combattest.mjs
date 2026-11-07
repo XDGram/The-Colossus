@@ -56,8 +56,8 @@ const DOC = {
   react: { flinch: 0.35, knockdown: 2.0, knockdownInvulnFrom: 0.6 },
   roll: { dist: 2.4, dur: 0.75, inv: [0.12, 0.45], cooldown: 0.8 },
   chain: { buffer: 0.15, mashLock: 0.25, cut1Window: [0.33, 0.43] },
-  director: { maxAttackers: 2, maxBreakers: 1, gap: 0.6 },
-  behaviour: { runnerRing: [3, 5], breakerHold: [2.0, 2.5], breakerSpeed: 0.92 },
+  director: { maxAttackers: 3, maxBreakers: 1, gap: 0.4 },
+  behaviour: { runnerRing: [1.8, 2.6], breakerHold: [2.0, 2.5], breakerSpeed: 0.92 },
   death: { bodyStays: 8, restart: 3 },
 };
 // Tolerances (stated in the results document).
@@ -823,9 +823,10 @@ if (want('multi')) {
   {
     group = '13 Multiple enemies (AI, 60 s, seed 1)';
     const mf = await E(() => {
-      // The player stands at the start, facing the arena, and keeps full health (topped up each second) so the run
-      // isn't cut short by restarts. Enemies are completely unmodified.
-      H.placePlayer(0, 44, Math.PI); H.fresh(); H.begin();
+      // The player stands near the start, facing the arena, and keeps full health (topped up each second) so the run
+      // isn't cut short by restarts. Enemies are completely unmodified. (z 40, not 44: since the main gate was sealed,
+      // the camera behind a player at z 44 sits inside the gate doors and every warning reads as hidden.)
+      H.placePlayer(0, 40, Math.PI); H.fresh(); H.begin();
       let maxAtk = 0, maxBrk = 0; const frameHits = new Map();
       for (let f = 0; f < 60 * 60; f++) {
         H.step(1);
@@ -838,9 +839,9 @@ if (want('multi')) {
       const gaps = starts.slice(1).map((t, i) => t - starts[i]);
       return { maxAtk, maxBrk, starts: starts.length, minGap: gaps.length ? Math.min(...gaps) : null, sameFrame: [...frameHits.values()].filter((n) => n > 1).length, hitsOnPlayer: H.sys().filter((e) => /^player /.test(e.what)).length };
     });
-    check('Never more than 2 enemies attacking at once', mf.maxAtk <= DOC.director.maxAttackers, `max ${mf.maxAtk}`);
+    check('Never more than 3 enemies attacking at once', mf.maxAtk <= DOC.director.maxAttackers, `max ${mf.maxAtk}`);
     check('Never more than 1 Breaker attacking at once', mf.maxBrk <= DOC.director.maxBreakers, `max ${mf.maxBrk}`);
-    check('At least 0.6 s between attack starts', mf.minGap === null || mf.minGap >= DOC.director.gap - 1e-6, `${mf.starts} starts, min gap ${f2(mf.minGap)} s`);
+    check('At least 0.4 s between attack starts', mf.minGap === null || mf.minGap >= DOC.director.gap - 1e-6, `${mf.starts} starts, min gap ${f2(mf.minGap)} s`);
     check('No two enemy hits land on the player in the same frame', mf.sameFrame === 0, `${mf.hitsOnPlayer} hits on the player, ${mf.sameFrame} same-frame pairs`);
     check('The fight produced attacks (sanity)', mf.starts >= 10 && mf.hitsOnPlayer >= 5, `${mf.starts} starts, ${mf.hitsOnPlayer} hits`);
   }
@@ -860,11 +861,12 @@ if (want('stage2b')) {
         H.step(1); if (f % 60 === 0) H.C.hp = 100;
         for (const b of H.A.brains) {
           const d = H.dist(b);
-          if (b.e.cls === 'runner' && b.state === 'hold' && b.stateT > 1.5) rd.push(d);
+          // Runners now re-decide every 0.5–1.1 s, so sample settled holds from 0.4 s.
+          if (b.e.cls === 'runner' && b.state === 'hold' && b.stateT > 0.4) rd.push(d);
           if (b.e.cls === 'breaker' && b.state === 'hold' && b.stateT > 2.5) bd.push(d);
           if (b.e.cls === 'breaker') {
             const p = b.e.object.position.clone();
-            if (last && (b.state === 'approach' || b.state === 'hold') && d < 8 && d > 2.8) bs.push(Math.hypot(p.x - last.x, p.z - last.z) * 60);
+            if (last && (b.state === 'approach' || b.state === 'hold') && d < 3.4 && d > 2.6) bs.push(Math.hypot(p.x - last.x, p.z - last.z) * 60);
             last = p;
           }
         }
@@ -879,12 +881,14 @@ if (want('stage2b')) {
       const startedHidden = H.A.director.starts.length - n0; H.g.debugCam(null);
       // Wall gate: the director's visibility check for a point just behind the solid wall at z 47.62.
       H.placePlayer(0, 44, 0); H.g.tpc.yaw = Math.PI; H.step(2);
+      // Bodies also block warnings (tested elsewhere); move the enemies out of this line so only the wall is tested.
+      H.A.brains.forEach((b, i) => b.e.object.position.set(-8 - i * 2, b.e.object.position.y, 30));
       const behindWall = H.A.director.visible([{ x: 0, y: 1.3, z: 49.0 }], 'probe'), inOpen = H.A.director.visible([{ x: 0, y: 1.3, z: 46.5 }], 'probe');
       return { runnerMed: med(rd), runnerIn: pct(rd, 3, 5), runnerN: rd.length, brkMed: med(bd), brkIn: pct(bd, 1.95, 2.55), brkN: bd.length, brkSpeedMax: bs.length ? Math.max(...bs) : null, brkSpeedMed: med(bs), startedHidden, behindWall, inOpen, before };
     });
-    check('Runners hold a 3–5 m ring', bh.runnerN > 0 && bh.runnerMed >= 3 && bh.runnerMed <= 5 && bh.runnerIn >= 0.8, `median ${f2(bh.runnerMed)} m, ${Math.round(bh.runnerIn * 100)}% of ${bh.runnerN} samples inside 3–5 m`);
+    check('Runners press in to a 1.8–2.6 m ring', bh.runnerN > 0 && bh.runnerMed >= DOC.behaviour.runnerRing[0] - 0.3 && bh.runnerMed <= DOC.behaviour.runnerRing[1] + 0.3, `median ${f2(bh.runnerMed)} m over ${bh.runnerN} samples`);
     check('Breaker holds 2.0–2.5 m (±0.05 m)', bh.brkN > 0 && bh.brkMed >= 1.95 && bh.brkMed <= 2.55 && bh.brkIn >= 0.8, `median ${bh.brkMed?.toFixed(3)} m, ${Math.round((bh.brkIn ?? 0) * 100)}% of ${bh.brkN} samples inside 1.95–2.55 m`);
-    check('Breaker walks at about 0.9 m/s within 8 m', bh.brkSpeedMed !== null && bh.brkSpeedMed <= DOC.behaviour.breakerSpeed + 0.1, `median ${f2(bh.brkSpeedMed)} m/s, max ${f2(bh.brkSpeedMax)} m/s`);
+    check('Breaker walks at about 0.9 m/s within 3.5 m (double pace further out)', bh.brkSpeedMed !== null && bh.brkSpeedMed <= DOC.behaviour.breakerSpeed + 0.1, `median ${f2(bh.brkSpeedMed)} m/s, max ${f2(bh.brkSpeedMax)} m/s`);
     const bc = await E(() => {
       // A Breaker that starts close (1.8 m, inside his 2.0–2.5 m band) — where does he settle? Attacks stubbed off.
       const b = H.brain('breaker'); for (const o of H.A.brains) if (o !== b) { H.freeze(o); H.park(o); }

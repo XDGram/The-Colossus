@@ -43,7 +43,7 @@ glints are in `WARDEN_TELL`.
   attacks only through the attack director, so the warning must be visible to the player.
 - **One spell at a time.** While his spells are live, or he is teleporting, he keeps his attack slot and **no other
   enemy may start an attack** (director `exclusive`). With the summoned Runners the director's limits still apply:
-  at most 2 attackers, 0.6 s between attack starts.
+  at most 3 attackers, 0.4 s between attack starts (revised in docs/combat.md §7).
 - **Colours:** pale = parryable, red = unparryable (as all enemies). Fire is orange; lightning is violet-white, kept
   distinct from the player's planned cyan abilities (`docs/abilities.md`).
 
