@@ -474,8 +474,12 @@ async function main() {
       await new Promise((r) => setTimeout(r, 600));
       const mount = combat?.blade.mount;
       vfx?.prewarm(true); spiritFx?.prewarm(true); if (mount) mount.visible = true;
-      try { await renderer.compileAsync(scene, camera); } catch { /* compiled on first use instead */ }
+      // compileAsync gathers the objects to compile when it is called, so everything is hidden again at once (nothing
+      // flashes on screen, even if the fight starts before compiling finishes).
+      let done: Promise<unknown> | null = null;
+      try { done = renderer.compileAsync(scene, camera); } catch { /* compiled on first use instead */ }
       vfx?.prewarm(false); spiritFx?.prewarm(false); if (mount && combat) mount.visible = combat.drawn;
+      await done?.catch(() => {});
     })();
   }
   let started = false;

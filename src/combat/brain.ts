@@ -75,6 +75,8 @@ export class EnemyBrain {
   removed = false;
   /** External pull (Gravity Rupture): horizontal velocity applied this frame on top of the brain's own movement. */
   readonly pullVel = new THREE.Vector3();
+  /** Knockback from a hit: a slide that decays (also while dying, so a killing blow throws the body). */
+  readonly knockVel = new THREE.Vector3();
   /** How strongly pulls move this enemy (the armoured classes resist). */
   get pullScale() { return this.e.kind === 'warden' ? 0.3 : this.e.cls === 'breaker' ? 0.55 : 1; }
 
@@ -96,17 +98,36 @@ export class EnemyBrain {
   effective() { return this.e.pivot.position.clone().applyQuaternion(this.e.object.quaternion).add(this.e.object.position); }
 
   // ------------------------------------------------------------------ external reactions (later stages call these)
-  react(kind: 'flinch' | 'stagger' | 'dodge' | 'parry') {
+  react(kind: 'flinch' | 'stagger' | 'dodge' | 'parry' | 'knockdown') {
     if (this.dead) return;
     this.release();
     const r = this.e.cls === 'runner';
-    if (kind === 'flinch') { this.set('flinch'); this.e.play((r ? 'flinchChest' : 'shudder') as never, 0.08); }
+    if (kind === 'knockdown') {
+      // Runners are thrown down and get back up (Hit_Knockback → LayToIdle); armoured classes stagger instead.
+      if (r) { this.set('stagger'); this.e.play('knockdown' as never, 0.06); this.e.rate = 1; return; }
+      kind = 'stagger';
+    }
+    if (kind === 'flinch') { this.set('flinch'); this.e.play((r ? 'flinchChest' : 'shudder') as never, 0.06); this.e.rate = 1; }
     else if (kind === 'stagger') { this.set('stagger'); this.e.play((r ? 'flinchHead' : 'stagger') as never, 0.12); if (r) this.e.rate = 0.43; }
     else if (kind === 'dodge' && r) this.startDodge();
     else if (kind === 'parry' && r) { this.set('parry'); this.e.play('parry' as never, 0.08); }
   }
-  kill() {
+  /** A player hit: the physical hit layer and a knockback slide of `knock` metres away from `from`. */
+  impulse(from: THREE.Vector3, lean: number, twist: number, knock: number) {
+    const dir = this.effective().sub(from).setY(0);
+    if (dir.lengthSq() < 1e-6) return; dir.normalize();
+    this.e.hitImpulse(dir, lean, twist);
+    // Exponential slide: v0 / 7 metres in total.
+    if (knock > 0) this.knockVel.copy(dir).multiplyScalar(knock * 7);
+  }
+  /** After a hit reaction: no new attack decision for `t` seconds (the player keeps the initiative). */
+  hitstun(t: number) { this.nextDecision = Math.max(this.nextDecision, t); this.dodgeCool = Math.max(this.dodgeCool, t); }
+  /** True while knocked down (on the ground or getting up). */
+  get downed() { return this.state === 'stagger' && this.e.move === 'knockdown'; }
+  kill(from?: THREE.Vector3) {
     if (this.dead) return;
+    // Face the killer so the fall goes away from him.
+    if (from) { const d = from.clone().sub(this.e.object.position); this.e.object.rotation.y = Math.atan2(d.x, d.z); this.e.pivot.rotation.y = 0; }
     this.release(); this.set('dead'); this.e.rate = 1;
     this.e.play((this.rnd() < 0.5 ? 'deathA' : 'deathB') as never, 0.15);
   }
@@ -383,11 +404,14 @@ export class EnemyBrain {
   }
   /** Gravity Rupture pull: moves the body through the normal wall resolve (nobody is pulled into a wall). */
   protected applyPull(dt: number) {
-    if (this.pullVel.lengthSq() > 1e-6 && !this.dead) {
-      const [nx, nz] = this.world.resolve(this.pos.x + this.pullVel.x * dt, this.pos.z + this.pullVel.z * dt, this.pos.y, this.p.radius);
+    const vx = (this.dead ? 0 : this.pullVel.x) + this.knockVel.x, vz = (this.dead ? 0 : this.pullVel.z) + this.knockVel.z;
+    if (vx * vx + vz * vz > 1e-6) {
+      const [nx, nz] = this.world.resolve(this.pos.x + vx * dt, this.pos.z + vz * dt, this.pos.y, this.p.radius);
       this.pos.x = nx; this.pos.z = nz;
     }
     this.pullVel.set(0, 0, 0);
+    this.knockVel.multiplyScalar(Math.exp(-7 * dt));
+    if (this.knockVel.lengthSq() < 1e-4) this.knockVel.set(0, 0, 0);
   }
   /** If trying to move but not getting anywhere for 1.5 s, flip the circling side and re-pick the radius. */
   protected unstick(dt: number, busy: boolean) {

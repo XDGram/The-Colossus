@@ -3,6 +3,7 @@ import { HitWorld, BODY, WEAPON_RADIUS, type HitEvent } from './hits';
 import type { EnemyBrain } from './brain';
 import type { PlayerCombat } from '../player/combat';
 import type { Player } from '../player/player';
+import { HITSTUN_COOLDOWN, KNOCK_SCALE, REACTIONS } from './reactions';
 import { BOSS, ENEMY_HITS, HEALTH, OPEN_METER, meterGain, playerDamage, PLAYER_MOVES, type EnemyHitDef, type PlayerMoveName } from './tables';
 
 /**
@@ -120,24 +121,38 @@ export class CombatSystem {
     if (!ability && b.e.cls === 'runner' && b.parrying && front) { this.combat.parriedByEnemy(); this.note('enemy parried', b.id, undefined, move); return 'parried'; }
     // The Breaker's guard blocks frontal Cut 1 / Cut 2 when he isn't attacking; it pushes the player back.
     if (!ability && b.e.cls === 'breaker' && front && (move === 'cut1' || move === 'cut2') && ['hold', 'reposition', 'approach'].includes(b.state)) {
-      this.combat.pushFrom(b.effective(), 0.3); this.note('guard blocked', b.id, 0, move); return 'guarded';
+      this.combat.pushFrom(b.effective(), 0.3); this.note('guard blocked', b.id, 0, move);
+      b.impulse(this.player.position, 0.12, 0, 0.05);   // the guard takes the blow: a small recoil
+      return 'guarded';
     }
     const open = b.isOpen();
     const dmg = Math.round(playerDamage(move, open) * scale);
     v.hp = Math.max(0, v.hp - dmg);
     this.note('hit', b.id, dmg, `${move}${open ? ' (open x1.5)' : ''} hp ${v.hp}`);
-    if (v.hp <= 0) { b.kill(); this.note('killed', b.id); return 'killed'; }
+    // Hit reaction (src/combat/reactions.ts): the physical layer and a knockback for everyone.
+    const rx = REACTIONS[move], from = this.player.position, kscale = KNOCK_SCALE[b.e.kind === 'warden' ? 'warden' : b.e.cls];
+    if (v.hp <= 0) {
+      b.kill(from); this.note('killed', b.id);
+      // A killing blow throws the body (armoured classes less).
+      b.impulse(from, rx.lean * 1.3, rx.twist, (rx.knock + 0.6) * kscale);
+      return 'killed';
+    }
+    b.impulse(from, rx.lean, rx.twist, rx.knock * kscale);
     const m = PLAYER_MOVES[move];
     if (b.e.cls === 'runner') {
-      // Poise: a break flinches him and interrupts his attack only before its first hit has landed.
+      // Every hit interrupts a Runner (he can't keep attacking while being cut). The weight of the attack picks the
+      // reaction: light cuts flinch, heavy attacks stagger (open), the Rift and the collapse knock him down. Poise
+      // still accumulates as before (a break is logged; it no longer changes the reaction, so damage is unchanged).
       const breaks = m.poise === 'break';
       v.poise += breaks ? POISE.runner : (m.poise as number) * scale * (open ? OPEN_METER : 1); v.lastPoise = this.time;
-      if (breaks) { v.poise = 0; b.react('stagger'); this.note('poise broken (riposte)', b.id); }
-      else if (v.poise >= POISE.runner) {
-        v.poise = 0;
-        if (b.state === 'stagger') this.note('poise broken while staggered (stays staggered)', b.id);
-        else if (b.state !== 'attack' && b.state !== 'tell' || b.beforeFirstHit()) { b.react('flinch'); this.note('flinched', b.id); }
-        else this.note('poise broken, attack already landed: no interrupt', b.id);
+      const kind = rx.runner;
+      if (breaks || v.poise >= POISE.runner) { v.poise = 0; this.note('poise broken', b.id); }
+      if (b.downed && kind !== 'knockdown') this.note('hit while down', b.id);     // stays down
+      else if (b.state === 'stagger' && kind === 'flinch') this.note('hit while staggered (stays staggered)', b.id);
+      else {
+        const was = b.state;
+        b.react(kind); b.hitstun(HITSTUN_COOLDOWN);
+        this.note(kind === 'flinch' ? 'flinched' : kind === 'stagger' ? 'staggered' : 'knocked down', b.id, undefined, was === 'attack' || was === 'tell' ? 'attack interrupted' : undefined);
       }
     } else {
       // Super-armour: ordinary hits never interrupt. The meter builds toward the knee-drop.
@@ -145,7 +160,9 @@ export class CombatSystem {
       if (this.time < v.immuneUntil) { this.note('meter immune', b.id); return 'immune'; }
       const gain = meterGain(move, open, behind) * scale;
       this.addMeter(b, v, gain, `${move}${open ? ' open' : ''}${behind ? ' behind' : ''}`);
-      if (b.state === 'hold' || b.state === 'reposition') b.react('flinch'); // small shudder while not attacking
+      // A Breaker's warning is cancelled by any hit (strike first and he can't attack); his swing itself is armoured.
+      if (b.e.kind === 'breaker' && b.state === 'tell') { b.react('flinch'); b.hitstun(HITSTUN_COOLDOWN); this.note('tell cancelled', b.id); }
+      else if (b.state === 'hold' || b.state === 'reposition') b.react('flinch'); // small shudder while not attacking
     }
     return 'hit';
   }

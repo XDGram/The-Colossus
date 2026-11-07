@@ -309,7 +309,8 @@ if (['p2r', 'r2p', 'block', 'parry', 'poise', 'death', 'wall', 'moving', 'stage1
     h = op.ev.filter((e) => e.what === 'hit');
     check('Cut 1 on a Runner in recovery (open) deals 8 × 1.5 = 12', h.length === 1 && h[0].amount === 12 && /open/.test(h[0].detail), `${h.map((x) => `${x.amount} ${x.detail} (enemy ${x.e.state} t=${x.e.time})`)}`);
     check('Open hit doubles poise (10 → 20): poise break', op.ev.some((e) => /poise broken|flinched/.test(e.what)), op.ev.map((e) => e.what).join(', '));
-    check('…but the slash had already landed: no interrupt', op.ev.some((e) => e.what === 'poise broken, attack already landed: no interrupt'), op.ev.map((e) => e.what).join(', '));
+    // Revised (docs/combat.md §6): every hit interrupts a Runner, even after his slash has landed.
+    check('…and the hit interrupts him (every hit reacts, even after his slash landed)', op.ev.some((e) => e.what === 'flinched'), op.ev.map((e) => e.what).join(', '));
   }
 
   // ---------------------------------------------------------------- 8. Runner poise
@@ -338,8 +339,10 @@ if (['p2r', 'r2p', 'block', 'parry', 'poise', 'death', 'wall', 'moving', 'stage1
       }
       return { ev: H.sys().map(({ what, amount, b: bb }) => ({ what, amount, e: bb[b.id] })), hp: H.C.hp };
     });
-    const fi = it.ev.findIndex((e) => e.what === 'flinched'), pre = it.ev[fi - 1];
-    check('Poise break during the tell interrupts the attack (flinch)', fi > 0 && pre.what === 'hit' && pre.e.state === 'tell', it.ev.map((e) => `${e.what} [${e.e.state}/${e.e.move}]`).join(', '));
+    // Every hit now flinches a Runner, so look for the flinch that follows the hit landing during the lunge's tell.
+    const ti = it.ev.findIndex((e) => e.what === 'hit' && e.e.state === 'tell');
+    const fi = ti < 0 ? -1 : it.ev.findIndex((e, i) => i > ti && e.what === 'flinched'), pre = it.ev[ti];
+    check('Poise break during the tell interrupts the attack (flinch)', ti >= 0 && fi > ti && pre.e.state === 'tell', it.ev.map((e) => `${e.what} [${e.e.state}/${e.e.move}]`).join(', '));
     check('Interrupted attack never lands on the player', !it.ev.some((e) => /^player (hit|blocked)/.test(e.what)) && it.hp === 100, `player hp ${it.hp}`);
 
     // Reset after 1.5 s: Cut 1, wait 1.6 s, Cut 1 → poise 10 (no flinch). And within 1.4 s → 20 (flinch).
@@ -352,7 +355,8 @@ if (['p2r', 'r2p', 'block', 'parry', 'poise', 'death', 'wall', 'moving', 'stage1
       }
       return out;
     });
-    check('Poise resets 1.5 s after the last hit (second Cut 1 after 1.6 s: no flinch)', !rs['1.6'].flinched, JSON.stringify(rs['1.6']));
+    // Revised: a single Cut 1 now flinches a Runner on its own, whatever his poise.
+    check('A lone Cut 1 flinches a Runner (second Cut 1 after 1.6 s: flinch)', rs['1.6'].flinched, JSON.stringify(rs['1.6']));
     check('Within the reset time poise accumulates (second Cut 1 after 1.0 s: flinch)', rs['1'].flinched, JSON.stringify(rs['1']));
   }
 

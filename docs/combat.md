@@ -172,6 +172,33 @@ The parry window (0.18 s) and roll invulnerability (0.33 s) both fit inside ever
 
 **Player poise:** none. Every unblocked hit lands its reaction (light or medium flinch, heavy knockdown). The 0.35 s flinch gives a little invulnerability, so one hit isn't followed by a free combo.
 
+### 6.1 Hit reactions (revised)
+
+Every hit that lands now gets a visible reaction that matches the attack (`src/combat/reactions.ts`):
+
+- **Physical hit layer (all enemies):** the spine, neck and head snap away from the blow and spring back (a damped
+  spring layered over whatever animation is playing, even an armoured swing), with a twist for spinning attacks.
+- **Knockback:** the body slides back along the blow through the normal wall resolve. Runners slide fully; Breakers
+  (×0.08) and the Temple Warden (×0.05) barely move, so combos stay in reach.
+- **Runners are interrupted by every hit** (they can't keep attacking while being cut), then wait 0.6 s before
+  deciding to attack again:
+
+  | Attack | Runner reaction | Slide |
+  |---|---|---|
+  | Cut 1 / Cut 2 | Flinch (0.35 s) | 0.3 m |
+  | Cut 3, lunge, riposte, heavy slash, kick | Stagger (open) | 0.9–1.4 m |
+  | Phantom Step | Stagger, spun by the cut | 0.6 m |
+  | Colossus Rift | Knocked down (thrown back, gets up) | 2.6 m |
+  | Gravity Rupture ring / collapse | Stagger while pulled / knocked down | 0 / 1.6 m |
+
+  Poise still accumulates and breaks are logged, but no longer change the reaction, so damage (including the open
+  bonus) is unchanged. A Runner already down stays down; a staggered Runner hit by a light cut stays staggered.
+- **Breaker:** any hit during his warning (tell) cancels the attack with a shudder (strike first and he can't swing);
+  his swing itself stays armoured. Meter and knee-drop unchanged.
+- **Temple Warden:** boss armour kept: physical layer and slide only, plus his existing shudder and knee-drop.
+- **Killing blows** turn the body to face the player so it falls away from him, and throw it back (Rift kills slide
+  about 3 m).
+
 ## 7. Enemy decision-making and teamwork
 
 **States:** `Approach → Hold → (ticket) → Tell → Attack → Recover → Reposition`.

@@ -90,7 +90,7 @@ export class WardenBrain extends EnemyBrain {
     this.phase = 1; this.summoned = false; this.cool = {}; this.action = null; this.chain = 0; this.decideIn = 1.2;
     this.e.object.visible = true; this.endExclusive(); this.ctx.spells?.clear();
   }
-  override kill() { super.kill(); this.endExclusive(); this.stopWarn?.(); }
+  override kill(from?: THREE.Vector3) { super.kill(from); this.endExclusive(); this.stopWarn?.(); }
 
   // ------------------------------------------------------------------ per frame
   override update(dt: number, now: number, player: PlayerView, others: EnemyBrain[]) {

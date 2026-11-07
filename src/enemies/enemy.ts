@@ -6,7 +6,7 @@ import { BREAKER_SCALE, CLUB, dressBreaker } from './breaker';
 import { dressMentor, type HeadScan, type MentorRig } from '../player/mentor';
 import { Dresser, handMount, makeMaterials } from './kit';
 import { mergeStaticSiblings, skinRigidParts } from '../core/skinmerge';
-import { calibrateHand, wpos, wquat, type HandCal } from './ik';
+import { calibrateHand, wpos, wquat, type HandCal, rotateWorld } from './ik';
 import { TwoHandGrip, type GripResult } from './twohand';
 import type { WeaponSample } from '../combat/hits';
 import { applyLayer, type LayerCtx } from './custom';
@@ -147,7 +147,40 @@ export class Enemy<K extends EnemyKind = EnemyKind> {
   }
   get done() { const m = this.moves[this.move]; return !m.loop && !m.hold && this.time >= this.duration(this.move); }
 
+  // ------------------------------------------------------------------ physical hit layer
+  /**
+   * Hits snap the upper body away from the blow and spring it back (a damped spring on the spine, neck and head,
+   * applied on top of the animation). Cheap: two springs per enemy, five bone rotations per frame while active.
+   */
+  private hitAxis = new THREE.Vector3(1, 0, 0);
+  private lean = { x: 0, v: 0 }; private twist = { x: 0, v: 0 };
+  /** `dir`: horizontal world direction of the blow (attacker → enemy). Velocities are kicks (rad/s). */
+  hitImpulse(dir: THREE.Vector3, lean: number, twist: number) {
+    const d = dir.clone().setY(0); if (d.lengthSq() < 1e-6) return; d.normalize();
+    // Lean away from the blow: rotate about the horizontal axis perpendicular to it.
+    this.hitAxis.set(d.z, 0, -d.x);
+    this.lean.v += lean * 14; this.twist.v += twist * 10;
+  }
+  private springs(dt: number) {
+    const step = (s: { x: number; v: number }, k: number, z: number) => {
+      const w = Math.sqrt(k);
+      s.v += (-k * s.x - 2 * z * w * s.v) * dt; s.x += s.v * dt;
+      if (Math.abs(s.x) < 1e-4 && Math.abs(s.v) < 1e-3) { s.x = 0; s.v = 0; }
+    };
+    step(this.lean, 160, 0.42); step(this.twist, 120, 0.4);
+  }
+  private applyHitLayer() {
+    if (!this.lean.x && !this.twist.x) return;
+    const L = THREE.MathUtils.clamp(this.lean.x, -0.7, 0.9), T = THREE.MathUtils.clamp(this.twist.x, -1.2, 1.2), up = new THREE.Vector3(0, 1, 0);
+    const B = this.bones;
+    for (const [n, kl, kt] of [['spine_01', 0.25, 0.3], ['spine_02', 0.3, 0.3], ['spine_03', 0.2, 0.2], ['neck_01', 0.15, 0.1], ['Head', 0.25, 0.1]] as const) {
+      const b = B[n]; if (!b) continue;
+      rotateWorld(b, this.hitAxis, L * kl); rotateWorld(b, up, T * kt);
+    }
+  }
+
   update(dt: number) {
+    this.springs(dt);
     if (!this.frozen) this.time += dt * this.rate;
     this.fade += dt;
     const m = this.moves[this.move];
@@ -192,6 +225,7 @@ export class Enemy<K extends EnemyKind = EnemyKind> {
       if (out.offset || out.yaw !== undefined) { this.object.updateMatrixWorld(true); }
     }
     if (this.grip) this.poseClub(m.club ?? 'carry', cur.time, m.layer === 'smashTilt', out.clubLower ?? 0, fwd, right, up, w);
+    this.applyHitLayer();
   }
 
   private poseClub(mode: ClubMode, clipTime: number, tilt: boolean, lower: number, fwd: THREE.Vector3, right: THREE.Vector3, up: THREE.Vector3, w: number) {
