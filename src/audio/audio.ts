@@ -25,7 +25,8 @@ const MIX: Partial<Record<SoundName, { gain?: number; max?: number; gap?: number
   spiritDash: { gain: 1.0 }, spiritAppear: { gain: 0.8 }, spiritCut: { gain: 0.85, max: 4, gap: 0.03 }, riftCharge: { gain: 0.75 }, riftRelease: { gain: 0.95 },
   riftHit: { gain: 0.8, max: 4, gap: 0.04 }, ruptureCharge: { gain: 0.8 }, ruptureBoom: { gain: 1.0 }, ruptureQuake: { gain: 0.7 }, debris: { gain: 0.5, max: 3, gap: 0.08 },
   cry: { gain: 0.75, max: 2, gap: 0.25 }, cry2: { gain: 0.75, max: 2, gap: 0.25 }, wind: { gain: 1.0, max: 1 }, riser: { gain: 0.6, max: 1 },
-  ...Object.fromEntries(VOICE.map((v) => [v, { gain: 1.25, max: 1, gap: 0.5 }])),
+  // The Warden's voice sits clearly above the music and effects (the music also dips while he speaks).
+  ...Object.fromEntries(VOICE.map((v) => [v, { gain: 1.6, max: 1, gap: 0.5 }])),
 };
 
 export class GameAudio {
@@ -49,10 +50,42 @@ export class GameAudio {
     if (this.ctx) { void this.ctx.resume(); return; }
     const AC = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     if (!AC) return;
-    this.ctx = new AC(); this.master = this.ctx.createGain(); this.master.gain.value = this.volume; this.master.connect(this.ctx.destination);
+    this.ctx = new AC(); this.master = this.ctx.createGain(); this.master.gain.value = this.volume;
+    // A gentle limiter on the mix, so a loud voice line over effects never distorts.
+    const lim = this.ctx.createDynamicsCompressor();
+    lim.threshold.value = -6; lim.knee.value = 6; lim.ratio.value = 12; lim.attack.value = 0.003; lim.release.value = 0.15;
+    this.master.connect(lim).connect(this.ctx.destination);
+    this.routeMusic();
+    // Phones suspend audio after interruptions (calls, app switches): resume on the next touch or key.
+    const resume = () => { if (this.ctx && this.ctx.state !== 'running') void this.ctx.resume(); };
+    for (const ev of ['pointerdown', 'touchstart', 'keydown']) addEventListener(ev, resume, { passive: true });
     for (const [n, data] of this.raw) this.ctx.decodeAudioData(data.slice(0)).then((b) => this.buffers.set(n, b)).catch(() => {});
   }
 
+  /**
+   * Route a music track through the mixer so its volume can be set everywhere (iPhone Safari ignores the volume of
+   * an audio element). `setVolume` then drives a gain node; before the context exists it falls back to the element.
+   */
+  private musicGains = new Map<HTMLAudioElement, GainNode>();
+  private musicWanted: HTMLAudioElement[] = [];
+  attachMusic(el: HTMLAudioElement) { this.musicWanted.push(el); if (this.ctx) this.routeMusic(); }
+  private routeMusic() {
+    const ctx = this.ctx!;
+    for (const el of this.musicWanted.splice(0)) {
+      try {
+        const src = ctx.createMediaElementSource(el), g = ctx.createGain();
+        g.gain.value = el.volume; el.volume = 1;
+        src.connect(g).connect(ctx.destination);
+        this.musicGains.set(el, g);
+      } catch { /* not supported: the element's own volume is used */ }
+    }
+  }
+  setVolume(el: HTMLAudioElement, v: number) {
+    const g = this.musicGains.get(el);
+    if (g) g.gain.value = v; else { try { el.volume = v; } catch { /* fixed */ } }
+  }
+  /** Length of a sound in seconds (0 until it is decoded). */
+  duration(name: SoundName) { return this.buffers.get(name)?.duration ?? 0; }
   /** Play a sound, optionally positioned in the world (falloff and pan relative to the camera). */
   play(name: SoundName, at?: THREE.Vector3) {
     const ctx = this.ctx, buf = this.buffers.get(name);

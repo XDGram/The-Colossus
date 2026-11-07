@@ -79,7 +79,9 @@ big power he gives the player an extra second's breather.
 ability stumbles or reels him back (at most once every 3.5 s). His warnings and swings are never interrupted.
 
 **Voice:** his lines are spoken (opening, raids, the final fight, phases 2 and 3; `w_*.mp3`), synthesised from the CC0
-"Joe" Piper voice, pitched down with a low boost and a short echo; the music dips under his voice.
+"Joe" Piper voice, pitched down with a low boost and a short echo, mastered loud (about −11 LUFS) and played above the effects. The
+music keeps playing but dips to 60% while he speaks (easing down in ~0.2 s and back in ~0.6 s). Both music tracks run
+through the game's Web Audio mixer (with a limiter), so their volume works on every device, including iPhone Safari.
 
 - **Loading:** the valley's models and textures download and it is built (terrain in time slices) while the menu and
   opening are up, hidden, with its own colliders, and its shaders are compiled in the background. A raid only happens

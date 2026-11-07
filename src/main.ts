@@ -47,28 +47,34 @@ const playMusic = () => { music.play().catch(() => {}); };
 const valleyMusic = new Audio(`${import.meta.env.BASE_URL}assets/audio/valley.m4a`);
 valleyMusic.loop = true; valleyMusic.preload = 'none'; valleyMusic.volume = 0;
 const MUSIC_VOL = 0.55, VALLEY_VOL = 0.44;
-let musicMode: 'temple' | 'valley' = 'temple', musicFade = 0;
+let musicMode: 'temple' | 'valley' = 'temple', musicFade = 9;
+/** Music volume: through the game's mixer once it exists (works on iPhone too), else the element's own volume. */
+let musicVol: (el: HTMLAudioElement, v: number) => void = (el, v) => { try { el.volume = v; } catch { /* fixed volume (iOS) */ } };
 const setMusic = (valley: boolean) => {
   musicMode = valley ? 'valley' : 'temple'; musicFade = 0;
-  if (valley) { valleyMusic.currentTime = 0; valleyMusic.volume = 0; valleyMusic.play().catch(() => {}); }
-  else { music.volume = 0; playMusic(); }
+  if (valley) { valleyMusic.currentTime = 0; musicVol(valleyMusic, 0); valleyMusic.play().catch(() => {}); }
+  else { musicVol(music, 0); playMusic(); }
 };
 /** Crossfade step (real time): 1.4 s; the faded-out track is paused once silent. */
 const fadeMusic = (dt: number) => {
   if (musicFade >= 1.4) return;
   musicFade += dt;
   const k = Math.min(1, musicFade / 1.4), v = musicMode === 'valley';
-  try { music.volume = MUSIC_VOL * (v ? 1 - k : k); valleyMusic.volume = VALLEY_VOL * (v ? k : 1 - k); } catch { /* fixed volume (iOS) */ }
+  musicVol(music, MUSIC_VOL * (v ? 1 - k : k)); musicVol(valleyMusic, VALLEY_VOL * (v ? k : 1 - k));
   if (k >= 1) { if (v) music.pause(); else valleyMusic.pause(); }
 };
-/** Music dips while the Warden speaks (until this time, ms). */
-let duckUntil = 0;
-const duckMusic = () => {
+/**
+ * The music keeps playing under the Warden's voice but dips to 60% while he speaks (until this time, ms), easing
+ * down in about 0.2 s and back up in about 0.6 s.
+ */
+let duckUntil = 0, duckLevel = 1;
+const duckMusic = (dt: number) => {
+  const want = performance.now() < duckUntil ? 0.6 : 1;
+  duckLevel += (want - duckLevel) * Math.min(1, dt * (want < duckLevel ? 12 : 4));
   if (musicFade < 1.4) return;
-  const k = performance.now() < duckUntil ? 0.82 : 1;
-  try { if (musicMode === 'valley') valleyMusic.volume = VALLEY_VOL * k; else music.volume = MUSIC_VOL * k; } catch { /* fixed volume (iOS) */ }
+  if (musicMode === 'valley') musicVol(valleyMusic, VALLEY_VOL * duckLevel); else musicVol(music, MUSIC_VOL * duckLevel);
 };
-const restartMusic = () => { musicMode = 'temple'; musicFade = 9; valleyMusic.pause(); music.volume = MUSIC_VOL; music.currentTime = 0; playMusic(); };
+const restartMusic = () => { musicMode = 'temple'; musicFade = 9; valleyMusic.pause(); musicVol(music, MUSIC_VOL); music.currentTime = 0; playMusic(); };
 playMusic();
 for (const ev of ['pointerdown', 'keydown', 'touchstart']) addEventListener(ev, () => {
   const m = musicMode === 'valley' ? valleyMusic : music;
@@ -349,9 +355,17 @@ async function main() {
     const groundAt = (x: number, z: number) => Math.max(ground.height(x, z), colliders.floorAt(x, z, ground.height(x, z) + 0.6));
     const { GameAudio } = await import('./audio/audio');
     const audio = new GameAudio(camera); void audio.load(import.meta.env.BASE_URL);
+    // Both music tracks go through the mixer (volume control on every device, including iPhone).
+    audio.attachMusic(music); audio.attachMusic(valleyMusic);
+    musicVol = (el, v) => audio.setVolume(el, v);
+    Object.assign(window, { __audio: { audio, say: (n: string) => sound(n) } });   // test hook
     const sound = (n: string, at?: THREE.Vector3) => {
       // The Warden speaks: his voice is never positional, and the music dips under it.
-      if (n.startsWith('w_')) { duckUntil = performance.now() + 3200; audio.play(n as import('./audio/audio').SoundName); return; }
+      if (n.startsWith('w_')) {
+        const name = n as import('./audio/audio').SoundName;
+        duckUntil = performance.now() + ((audio.duration(name) || 3) + 0.35) * 1000;
+        audio.play(name); return;
+      }
       audio.play(n as import('./audio/audio').SoundName, at);
     };
     const spells = new Spells(hitWorld, vfx, { height: groundAt, blocks: (x, y, z) => colliders.blocks(x, y, z), player, push: (from, d) => combat!.pushFrom(from, d), sound });
@@ -554,7 +568,7 @@ async function main() {
   let debugCam: [number[], [number, number, number]] | null = null;
   const update = (dt: number) => {
     t += dt;
-    fadeMusic(dt); duckMusic();
+    fadeMusic(dt); duckMusic(dt);
     abilities?.tick(dt);
     // Opening cinematic: the encounter walks the player in from the gate; input waits until the fight starts.
     const cine = started ? encounter?.cinematic ?? null : null;
