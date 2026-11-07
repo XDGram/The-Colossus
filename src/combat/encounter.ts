@@ -63,6 +63,7 @@ export class TempleEncounter {
   /** The sealed main gate (doors swing open in the opening; set by the game). */
   doors: { open(k: number): void; solid(on: boolean): void } | null = null;
   private bars: HTMLElement;
+  private lastReal = -1;
   /** Camera shake hook (the thunderclap). */
   onShake: ((amount: number, time: number) => void) | null = null;
   private flash: HTMLElement;
@@ -187,9 +188,8 @@ export class TempleEncounter {
       this.startWave(1);
     }
   }
-  /** Letterbox bars for the opening. */
+  /** The opening plays full screen (no letterbox): only the HUD is hidden while it runs. */
   private cineBars(on: boolean) {
-    this.bars.style.opacity = on ? '1' : '0';
     this.hud.style.visibility = on ? 'hidden' : 'visible';
   }
   private flashScreen() {
@@ -282,7 +282,13 @@ export class TempleEncounter {
     if (this.t > this.capUntil) this.cap.classList.remove('show');
     const allDown = (bs: EnemyBrain[]) => bs.length > 0 && bs.every((b) => b.dead);
     switch (this.phase) {
-      case 'intro': this.updateIntro(dt); break;
+      case 'intro': {
+        // The opening runs on real time, so a slow frame rate can't stretch it out (the game clamps long frames).
+        const now = performance.now(), real = this.lastReal < 0 ? dt : Math.min(0.25, (now - this.lastReal) / 1000);
+        this.lastReal = now; this.t += Math.max(0, real - dt);
+        this.updateIntro(dt);
+        break;
+      }
       case 'wave1': case 'wave2': case 'wave3': {
         this.trickle();
         if (!this.queue.length && allDown(this.wave)) {

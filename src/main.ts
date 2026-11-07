@@ -512,9 +512,19 @@ async function main() {
     })();
   }
   let started = false;
+  // Full screen: the game takes the whole screen when play starts (phones also lock to landscape where allowed).
+  const goFullscreen = () => {
+    const el = document.documentElement as HTMLElement & { webkitRequestFullscreen?: () => void };
+    if (document.fullscreenElement) return;
+    try {
+      const r = el.requestFullscreen ? el.requestFullscreen({ navigationUI: 'hide' }) : (el.webkitRequestFullscreen?.(), undefined);
+      void r?.then(() => (screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> })?.lock?.('landscape').catch(() => {})).catch(() => {});
+    } catch { /* not supported (e.g. iPhone Safari): the page already fills the window */ }
+  };
   const start = () => {
     if (started) return;
     started = true;
+    if (!params.has('combat') && !debug) goFullscreen();
     ui.loader.classList.add('done');
     ui.title.classList.remove('show');
     ui.hint.classList.add('show');
@@ -537,6 +547,7 @@ async function main() {
       location.reload();
     }
     if (e.code === 'F3') { ui.fps.classList.toggle('show'); e.preventDefault(); }
+    if (e.code === 'KeyF' && started) { if (document.fullscreenElement) void document.exitFullscreen(); else goFullscreen(); }
   });
   ui.quality.textContent = `Graphics: ${quality === 'high' ? 'High' : 'Low'} (G to change)`;
   if (debug) ui.fps.classList.add('show');
