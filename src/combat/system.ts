@@ -177,9 +177,29 @@ export class CombatSystem {
       const gain = meterGain(move, open, behind) * scale;
       this.addMeter(b, v, gain, `${move}${open ? ' open' : ''}${behind ? ' behind' : ''}`);
       // A Breaker's warning is cancelled by any hit (strike first and he can't attack); his swing itself is armoured.
-      if (b.e.kind !== 'breaker' && (b.state === 'hold' || b.state === 'reposition')) b.react('flinch'); // the Warden's shudder
+      if (b.e.kind === 'warden') this.wardenReacts(b, rx, from);
     }
     return 'hit';
+  }
+  /**
+   * The Temple Warden takes damage visibly but keeps his boss armour: every hit snaps his body back (a strong hit layer);
+   * between attacks a light cut jolts him and a heavy hit or an ability stumbles or reels him back (at most once
+   * every 3.5 s, so he can't be stun-locked). His warnings and swings are never interrupted.
+   */
+  private bossReactAt = new Map<EnemyBrain, number>();
+  private wardenReacts(b: EnemyBrain, rx: (typeof REACTIONS)[PlayerMoveName], from: THREE.Vector3) {
+    if (['tell', 'attack', 'vanish', 'transition', 'stagger', 'dead'].includes(b.state)) {
+      b.impulse(from, rx.lean * 0.9, rx.twist * 0.6, 0); return;
+    }
+    const heavy = rx.giant === 'stumble' || rx.giant === 'reel' || rx.giant === 'knee';
+    const ready = this.time - (this.bossReactAt.get(b) ?? -99) > 3.5;
+    const kind = heavy && ready ? (rx.giant === 'stumble' ? 'stumble' : 'reel') : rx.giant === 'none' ? 'none' : 'jolt';
+    const out = b.giantReact(kind);
+    if (out === 'none' || out === 'armoured') return;
+    if (kind !== 'jolt') this.bossReactAt.set(b, this.time);
+    b.impulse(from, rx.lean, rx.twist, kind === 'reel' ? 1.2 : kind === 'stumble' ? 0.8 : 0.15);
+    b.hitstun(kind === 'jolt' ? 0.3 : 0.8);
+    this.note(`warden ${out}`, b.id);
   }
   private addMeter(b: EnemyBrain, v: Vitals, gain: number, why: string) {
     v.meter += gain; v.lastMeter = this.time;

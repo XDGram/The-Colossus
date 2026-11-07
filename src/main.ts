@@ -61,6 +61,13 @@ const fadeMusic = (dt: number) => {
   try { music.volume = MUSIC_VOL * (v ? 1 - k : k); valleyMusic.volume = VALLEY_VOL * (v ? k : 1 - k); } catch { /* fixed volume (iOS) */ }
   if (k >= 1) { if (v) music.pause(); else valleyMusic.pause(); }
 };
+/** Music dips while the Warden speaks (until this time, ms). */
+let duckUntil = 0;
+const duckMusic = () => {
+  if (musicFade < 1.4) return;
+  const k = performance.now() < duckUntil ? 0.5 : 1;
+  try { if (musicMode === 'valley') valleyMusic.volume = VALLEY_VOL * k; else music.volume = MUSIC_VOL * k; } catch { /* fixed volume (iOS) */ }
+};
 const restartMusic = () => { musicMode = 'temple'; musicFade = 9; valleyMusic.pause(); music.volume = MUSIC_VOL; music.currentTime = 0; playMusic(); };
 playMusic();
 for (const ev of ['pointerdown', 'keydown', 'touchstart']) addEventListener(ev, () => {
@@ -342,7 +349,11 @@ async function main() {
     const groundAt = (x: number, z: number) => Math.max(ground.height(x, z), colliders.floorAt(x, z, ground.height(x, z) + 0.6));
     const { GameAudio } = await import('./audio/audio');
     const audio = new GameAudio(camera); void audio.load(import.meta.env.BASE_URL);
-    const sound = (n: string, at?: THREE.Vector3) => audio.play(n as import('./audio/audio').SoundName, at);
+    const sound = (n: string, at?: THREE.Vector3) => {
+      // The Warden speaks: his voice is never positional, and the music dips under it.
+      if (n.startsWith('w_')) { duckUntil = performance.now() + 3200; audio.play(n as import('./audio/audio').SoundName); return; }
+      audio.play(n as import('./audio/audio').SoundName, at);
+    };
     const spells = new Spells(hitWorld, vfx, { height: groundAt, blocks: (x, y, z) => colliders.blocks(x, y, z), player, push: (from, d) => combat!.pushFrom(from, d), sound });
     combatSystem.hazards = spells;
     {
@@ -548,7 +559,7 @@ async function main() {
   let debugCam: [number[], [number, number, number]] | null = null;
   const update = (dt: number) => {
     t += dt;
-    fadeMusic(dt);
+    fadeMusic(dt); duckMusic();
     abilities?.tick(dt);
     // Opening cinematic: the encounter walks the player in from the gate; input waits until the fight starts.
     const cine = started ? encounter?.cinematic ?? null : null;

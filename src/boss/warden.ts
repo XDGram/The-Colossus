@@ -133,7 +133,7 @@ export class WardenBrain extends EnemyBrain {
   // ------------------------------------------------------------------ per frame
   override update(dt: number, now: number, player: PlayerView, others: EnemyBrain[]) {
     this.now = now; this.stateT += dt;
-    for (const k of Object.keys(this.cool) as Action[]) this.cool[k] = Math.max(0, (this.cool[k] ?? 0) - dt * (this.unleashed ? 1.5 : 1));
+    for (const k of Object.keys(this.cool) as Action[]) this.cool[k] = Math.max(0, (this.cool[k] ?? 0) - dt * (this.unleashed ? 1.15 : 1));
     this.blinkCool -= dt;
     const me = this.effective(), toP = player.position.clone().sub(me).setY(0), dist = toP.length(), facePlayer = Math.atan2(toP.x, toP.z);
     let want = new THREE.Vector3(), face: number | null = facePlayer;
@@ -221,7 +221,8 @@ export class WardenBrain extends EnemyBrain {
 
   // ------------------------------------------------------------------ decisions
   private choose(dist: number, player: PlayerView, now: number) {
-    this.decideIn = this.unleashed ? THREE.MathUtils.lerp(0.25, 0.6, this.rnd()) : THREE.MathUtils.lerp(0.6, 1.2, this.rnd());
+    // Measured, not frantic: a beat between his attacks (a little shorter in his realm).
+    this.decideIn = this.unleashed ? THREE.MathUtils.lerp(0.7, 1.2, this.rnd()) : THREE.MathUtils.lerp(0.8, 1.4, this.rnd());
     const spellsLive = (this.ctx.spells?.active(this) ?? 0) > 0;
     const cands = (Object.keys(ACTIONS) as Action[]).filter((a) => {
       const d = ACTIONS[a];
@@ -236,7 +237,7 @@ export class WardenBrain extends EnemyBrain {
       if (dist >= d.range[0] && dist <= d.range[1]) w *= 2.2; else if (!d.magic) w *= dist > d.range[1] + 3 ? 0.2 : 0.7;
       if (d.phase === this.phase && this.phase > 1) w *= 1.6;
       if (dist > 6 && d.magic) w *= 1.8;
-      if (d.power) w *= this.unleashed ? 3.2 : 1.3;
+      if (d.power) w *= this.unleashed ? 2.0 : 1.2;
       // Rotation: each use among his last four actions makes a move less likely, so the fight keeps changing.
       const recent = this.actionLog.slice(-4).filter((x) => x[1] === a).length;
       return w * Math.pow(0.4, recent);
@@ -362,7 +363,9 @@ export class WardenBrain extends EnemyBrain {
     this.thunder = false;
     this.attack = null; this.action = null;
     if ((this.ctx.spells?.active(this) ?? 0) === 0) this.endExclusive();
-    this.set('reposition'); this.decideIn = THREE.MathUtils.lerp(0.5, 1.0, this.rnd());
+    // After one of his big powers he gives the player a longer breather.
+    const big = this.lastAction ? ACTIONS[this.lastAction].power : false;
+    this.set('reposition'); this.decideIn = THREE.MathUtils.lerp(0.8, 1.3, this.rnd()) + (big ? 1.0 : 0);
     void player; void now;
   }
   private endExclusive() {
@@ -412,7 +415,7 @@ export class WardenBrain extends EnemyBrain {
   }
   /** Blink: a short teleport through smoke to close distance (not an attack). */
   private blink(player: PlayerView, front = false) {
-    this.blinkCool = this.unleashed ? 2.5 : 5;
+    this.blinkCool = this.unleashed ? 4 : 6;
     const toMe = front ? new THREE.Vector3(Math.sin(player.facing), 0, Math.cos(player.facing)) : this.pos.clone().sub(player.position).setY(0).normalize();
     const side = new THREE.Vector3(toMe.z, 0, -toMe.x);
     const p = player.position.clone().addScaledVector(toMe, 3.2).addScaledVector(side, (this.rnd() - 0.5) * 3);

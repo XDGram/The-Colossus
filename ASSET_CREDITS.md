@@ -49,6 +49,7 @@ Original downloads are kept out of the repository (`assets-src/`, git-ignored). 
 |---|---|---|---|---|
 | Glass break | [OpenGameArt](https://opengameart.org/content/glass-break) | (OpenGameArt submitter) | CC0 1.0 | `public/assets/audio/shatter.mp3`; reversed and layered with the thunder for `rewind.mp3` |
 | 15 vocal male strain/hurt/pain/jump sounds | [OpenGameArt](https://opengameart.org/content/15-vocal-male-strainhurtpainjump-sounds) | qubodup | CC0 1.0 | Two clips trimmed and loudness-normalised: `cry.mp3`, `cry2.mp3` (enemy battle cries) |
+| Temple Warden voice lines | Generated with [Piper](https://github.com/OHF-Voice/piper1-gpl) using the [en_US "joe" medium voice](https://huggingface.co/rhasspy/piper-voices/tree/main/en/en_US/joe/medium) (dataset CC0) | — | CC0 voice data; lines written for this game | `w_*.mp3` (pitched down, low boost, short echo) |
 | Rising rumble | Synthesised for this game (brown noise and a low sine sweep, ffmpeg) | — | Original | `riser.mp3` |
 
 ## Supplied by the project owner

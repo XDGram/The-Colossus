@@ -58,11 +58,11 @@ track; the temple track pauses where it was and resumes on return.
 
 - **Raids (mid-wave):** near the end of each wave (every soldier of it in the field and 2–4 still standing), lightning
   strikes beside the player and the Warden is there. A beat later the temple tears into the valley, taking the player,
-  the Warden and the surviving soldiers. He fights unleashed alongside them until **28 s**, or he loses **12%** of his
-  health, or (his soldiers down) after 14 s; then he withdraws in smoke, the realm shatters, and the player is back in
+  the Warden and the surviving soldiers. He fights unleashed alongside them until **36 s**, or he loses **15%** of his
+  health, or (his soldiers down) after 20 s; then he withdraws in smoke, the realm shatters, and the player is back in
   the courtyard where they were, finishing the wave. His health carries over between raids and into the final fight.
 - **The final fight:** when he comes out after wave 3 and closes in (within 7.5 m, or after 6 s), the realm takes them
-  once more, until **38 s**, or he loses **20%**, or he falls below 30%; the fight then ends in the temple.
+  once more, until **48 s**, or he loses **20%**, or he falls below 30%; the fight then ends in the temple.
 
 **The shatter cinematic** (`src/fx/shatter.ts`, `beginTrans` in `src/combat/encounter.ts`): the world breaks like
 glass. Full version (the first time each way, and the final fight, about 3.9 s): the camera turns to the Warden as a
@@ -72,8 +72,15 @@ while the camera sweeps in high over the new world and settles behind the player
 view cracks and shatters. Everyone is held still and the HUD hides throughout. Sounds: `riser` (rising rumble), glass
 `shatter` going in, `rewind` (the shatter reversed) coming back, with thunder at the break.
 
-In the realm he is **unleashed**: every power, decisions 2–3× faster, cooldowns 1.5× faster, the powers weighted ×3.2,
-and no phase changes (they happen in the temple).
+In the realm he is **unleashed**: every power, slightly quicker decisions (0.7–1.2 s between attacks instead of
+0.8–1.4 s), cooldowns 1.15× faster, the powers weighted ×2, and no phase changes (they happen in the temple). After any
+big power he gives the player an extra second's breather.
+
+**Taking damage:** every hit snaps his body back; between his attacks a light cut jolts him and a heavy hit or an
+ability stumbles or reels him back (at most once every 3.5 s). His warnings and swings are never interrupted.
+
+**Voice:** his lines are spoken (opening, raids, the final fight, phases 2 and 3; `w_*.mp3`), synthesised from the CC0
+"Joe" Piper voice, pitched down with a low boost and a short echo; the music dips under his voice.
 
 - **Loading:** the valley's models and textures download and it is built (terrain in time slices) while the menu and
   opening are up, hidden, with its own colliders, and its shaders are compiled in the background. A raid only happens

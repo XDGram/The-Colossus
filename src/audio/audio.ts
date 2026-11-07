@@ -11,8 +11,12 @@ export type SoundName = 'tell' | 'whoosh' | 'vanish' | 'appear' | 'fireCharge' |
   // Player abilities (docs/abilities.md).
   | 'spiritDash' | 'spiritAppear' | 'spiritCut' | 'riftCharge' | 'riftRelease' | 'riftHit' | 'ruptureCharge' | 'ruptureBoom' | 'ruptureQuake' | 'debris'
   // Enemy battle cries (attack warnings from off screen) and the realm shatter cinematic.
-  | 'cry' | 'cry2' | 'shatter' | 'riser' | 'rewind';
-const FILES: SoundName[] = ['cry', 'cry2', 'shatter', 'riser', 'rewind', 'tell', 'whoosh', 'vanish', 'appear', 'fireCharge', 'fireWave', 'fireball', 'flame', 'stormCall', 'stormMark', 'thunder', 'roar',
+  | 'cry' | 'cry2' | 'shatter' | 'riser' | 'rewind'
+  // The Temple Warden's voice lines (synthesised from the CC0 "Joe" Piper voice, deepened; see ASSET_CREDITS.md).
+  | VoiceLine;
+export type VoiceLine = 'w_intro' | 'w_finish' | 'w_raid1' | 'w_raid2' | 'w_raid3' | 'w_final' | 'w_burn' | 'w_storm';
+export const VOICE: VoiceLine[] = ['w_intro', 'w_finish', 'w_raid1', 'w_raid2', 'w_raid3', 'w_final', 'w_burn', 'w_storm'];
+const FILES: SoundName[] = [...VOICE, 'cry', 'cry2', 'shatter', 'riser', 'rewind', 'tell', 'whoosh', 'vanish', 'appear', 'fireCharge', 'fireWave', 'fireball', 'flame', 'stormCall', 'stormMark', 'thunder', 'roar',
   'spiritDash', 'spiritAppear', 'spiritCut', 'riftCharge', 'riftRelease', 'riftHit', 'ruptureCharge', 'ruptureBoom', 'ruptureQuake', 'debris'];
 /** Per-sound mix level and overlap limits. */
 const MIX: Partial<Record<SoundName, { gain?: number; max?: number; gap?: number }>> = {
@@ -21,6 +25,7 @@ const MIX: Partial<Record<SoundName, { gain?: number; max?: number; gap?: number
   spiritDash: { gain: 1.0 }, spiritAppear: { gain: 0.8 }, spiritCut: { gain: 0.85, max: 4, gap: 0.03 }, riftCharge: { gain: 0.75 }, riftRelease: { gain: 0.95 },
   riftHit: { gain: 0.8, max: 4, gap: 0.04 }, ruptureCharge: { gain: 0.8 }, ruptureBoom: { gain: 1.0 }, ruptureQuake: { gain: 0.7 }, debris: { gain: 0.5, max: 3, gap: 0.08 },
   cry: { gain: 0.75, max: 2, gap: 0.25 }, cry2: { gain: 0.75, max: 2, gap: 0.25 }, shatter: { gain: 1.0, max: 1 }, riser: { gain: 0.85, max: 1 }, rewind: { gain: 0.9, max: 1 },
+  ...Object.fromEntries(VOICE.map((v) => [v, { gain: 1.25, max: 1, gap: 0.5 }])),
 };
 
 export class GameAudio {
@@ -63,7 +68,7 @@ export class GameAudio {
       pan = THREE.MathUtils.clamp(rel.x / Math.max(2, Math.abs(rel.z)), -0.8, 0.8);
     }
     const src = ctx.createBufferSource(); src.buffer = buf;
-    src.playbackRate.value = 0.96 + Math.random() * 0.08;  // slight variation on repeats
+    src.playbackRate.value = name.startsWith('w_') ? 1 : 0.96 + Math.random() * 0.08;  // slight variation on repeats (not speech)
     const g = ctx.createGain(); g.gain.value = gain;
     const p = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
     if (p) { p.pan.value = pan; src.connect(g).connect(p).connect(this.master); } else src.connect(g).connect(this.master);

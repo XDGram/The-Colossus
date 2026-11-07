@@ -10,13 +10,15 @@ import { BREAKER, type MoveDef } from '../enemies/moves';
  */
 export type WardenMove = 'idle' | 'walk' | 'guard' | 'shudder' | 'guardBreak' | 'stagger' | 'deathA' | 'deathB'
   | 'combo' | 'lunge' | 'cleave' | 'roll' | 'stepslash' | 'flamecut' | 'storm' | 'tpstrike' | 'plunge' | 'palm' | 'raise'
-  | 'jog' | 'inferno' | 'leap' | 'land' | 'wrath' | 'tempest';
+  | 'jog' | 'inferno' | 'leap' | 'land' | 'wrath' | 'tempest' | 'jolt' | 'stumble' | 'reel';
 
 const hit = (t: number, window = 0.06) => ({ t, window, reach: 1.9, arc: 120, damage: 0 });
 
 export const WARDEN: Record<WardenMove, MoveDef> = {
   idle: BREAKER.idle, walk: BREAKER.walk, guard: BREAKER.guard, shudder: BREAKER.shudder, guardBreak: BREAKER.guardBreak,
   deathA: BREAKER.deathA, deathB: BREAKER.deathB,
+  // Taking damage (between his attacks): a jolt, a stumble back, a long reel (the Iron Breaker's reactions).
+  jolt: BREAKER.jolt, stumble: BREAKER.stumble, reel: BREAKER.reel,
   // Posture break: the existing kneel with the blade planted, held 2.5 s.
   stagger: { ...BREAKER.stagger, duration: 2.5, recovery: 2.3 },
   // Sword (phase 1+).
