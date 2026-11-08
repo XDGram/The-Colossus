@@ -149,11 +149,16 @@ export class CombatSystem {
       const breaks = m.poise === 'break';
       v.poise += breaks ? POISE.runner : (m.poise as number) * scale * (open ? OPEN_METER : 1); v.lastPoise = this.time;
       const kind = rx.runner;
-      if (breaks || v.poise >= POISE.runner) { v.poise = 0; this.note('poise broken', b.id); }
+      const brokeNow = breaks || v.poise >= POISE.runner;
+      if (brokeNow) { v.poise = 0; this.note('poise broken', b.id); }
       if (b.downed && kind !== 'knockdown') this.note('hit while down', b.id);     // stays down
       else if (b.state === 'stagger' && kind === 'flinch') this.note('hit while staggered (stays staggered)', b.id);
-      else {
+      else if (kind === 'flinch' && !brokeNow && this.flinchStreak(b) >= 2) {
+        // Cut twice in quick succession: he shrugs off the next light hit and strikes back at once (no stun-lock).
+        b.hitstun(0); (b as unknown as { nextDecision: number }).nextDecision = 0; this.note('shrugged off', b.id);
+      } else {
         const was = b.state;
+        if (kind === 'flinch') this.flinchAt.set(b, [...(this.flinchAt.get(b) ?? []).filter((x) => this.time - x < 2), this.time]);
         b.react(kind); b.hitstun(HITSTUN_COOLDOWN);
         this.note(kind === 'flinch' ? 'flinched' : kind === 'stagger' ? 'staggered' : 'knocked down', b.id, undefined, was === 'attack' || was === 'tell' ? 'attack interrupted' : undefined);
       }
@@ -163,7 +168,10 @@ export class CombatSystem {
       // heavy attacks stumble him back (unless mid-swing), the leap slam and the Rift reel him, the Rupture drops him to
       // a knee. The meter still builds toward the armour break (the long knee-drop).
       if (b.e.kind === 'breaker') {
-        const kind = b.state === 'tell' && rx.giant === 'none' ? 'jolt' : rx.giant;
+        let kind = b.state === 'tell' && rx.giant === 'none' ? 'jolt' : rx.giant;
+        // A giant can be driven back only so often: one stumble/reel every 3 s, a jolt in between.
+        if ((kind === 'stumble' || kind === 'reel') && this.time - (this.bossReactAt.get(b) ?? -99) < 3) kind = 'jolt';
+        if (kind === 'stumble' || kind === 'reel') this.bossReactAt.set(b, this.time);
         const was = b.state, out = b.giantReact(kind);
         if (out !== 'none' && out !== 'armoured' && out !== 'kneeling') {
           const g = GIANT[kind as keyof typeof GIANT];
@@ -187,18 +195,23 @@ export class CombatSystem {
    * every 3.5 s, so he can't be stun-locked). His warnings and swings are never interrupted.
    */
   private bossReactAt = new Map<EnemyBrain, number>();
+  /** Recent flinch times per Runner (anti stun-lock). */
+  private flinchAt = new Map<EnemyBrain, number[]>();
+  private flinchStreak(b: EnemyBrain) { return (this.flinchAt.get(b) ?? []).filter((x) => this.time - x < 2).length; }
   private wardenReacts(b: EnemyBrain, rx: (typeof REACTIONS)[PlayerMoveName], from: THREE.Vector3) {
     if (['tell', 'attack', 'vanish', 'transition', 'stagger', 'dead'].includes(b.state)) {
       b.impulse(from, rx.lean * 0.9, rx.twist * 0.6, 0); return;
     }
     const heavy = rx.giant === 'stumble' || rx.giant === 'reel' || rx.giant === 'knee';
     const ready = this.time - (this.bossReactAt.get(b) ?? -99) > 3.5;
-    const kind = heavy && ready ? (rx.giant === 'stumble' ? 'stumble' : 'reel') : rx.giant === 'none' ? 'none' : 'jolt';
+    // Light hits only shake his body: they never stop him (otherwise a player who keeps cutting would stun-lock him).
+    if (!(heavy && ready)) { b.impulse(from, rx.lean, rx.twist * 0.6, 0.1); return; }
+    const kind = rx.giant === 'stumble' ? 'stumble' : 'reel';
     const out = b.giantReact(kind);
     if (out === 'none' || out === 'armoured') return;
-    if (kind !== 'jolt') this.bossReactAt.set(b, this.time);
-    b.impulse(from, rx.lean, rx.twist, kind === 'reel' ? 1.2 : kind === 'stumble' ? 0.8 : 0.15);
-    b.hitstun(kind === 'jolt' ? 0.3 : 0.8);
+    this.bossReactAt.set(b, this.time);
+    b.impulse(from, rx.lean, rx.twist, kind === 'reel' ? 1.2 : 0.8);
+    b.hitstun(0.8);
     this.note(`warden ${out}`, b.id);
   }
   private addMeter(b: EnemyBrain, v: Vitals, gain: number, why: string) {

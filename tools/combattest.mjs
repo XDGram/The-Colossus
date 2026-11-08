@@ -867,7 +867,9 @@ if (want('stage2b')) {
           const d = H.dist(b);
           // Runners now re-decide every 0.5–1.1 s, so sample settled holds from 0.4 s.
           if (b.e.cls === 'runner' && b.state === 'hold' && b.stateT > 0.4) rd.push(d);
-          if (b.e.cls === 'breaker' && b.state === 'hold' && b.stateT > 2.5) bd.push(d);
+          // Uncrowded holds only: with Runners pressing in (revised AI), a Runner beside him pushes him off his line.
+          const crowded = H.A.brains.some((o) => o !== b && !o.dead && o.e.cls === 'runner' && o.effective().distanceTo(b.effective()) < 1.7);
+          if (b.e.cls === 'breaker' && b.state === 'hold' && b.stateT > 0.6 && !crowded) bd.push(d);
           if (b.e.cls === 'breaker') {
             const p = b.e.object.position.clone();
             if (last && (b.state === 'approach' || b.state === 'hold') && d < 3.4 && d > 2.6) bs.push(Math.hypot(p.x - last.x, p.z - last.z) * 60);

@@ -195,7 +195,7 @@ export class WardenBrain extends EnemyBrain {
         if (this.e.move !== 'plunge') { this.set('hold'); this.decideIn = 0.6; }
         break;
       case 'reposition':
-        if (this.stateT > 0.7) { this.set('hold'); }
+        if (this.stateT > 0.35) { this.set('hold'); }
         break;
       case 'flinch': case 'stagger': case 'dodge': case 'parry':
         face = null; this.cue.visible = false;
@@ -221,8 +221,9 @@ export class WardenBrain extends EnemyBrain {
 
   // ------------------------------------------------------------------ decisions
   private choose(dist: number, player: PlayerView, now: number) {
-    // Measured, not frantic: a beat between his attacks (a little shorter in his realm).
-    this.decideIn = this.unleashed ? THREE.MathUtils.lerp(0.7, 1.2, this.rnd()) : THREE.MathUtils.lerp(0.8, 1.4, this.rnd());
+    // A short beat between his attacks (shorter in his realm); a player who stands waiting is pressed at once.
+    this.decideIn = this.unleashed ? THREE.MathUtils.lerp(0.35, 0.7, this.rnd()) : THREE.MathUtils.lerp(0.45, 0.85, this.rnd());
+    if ((player.idle ?? 0) > 1.2) this.decideIn *= 0.4;
     const spellsLive = (this.ctx.spells?.active(this) ?? 0) > 0;
     const cands = (Object.keys(ACTIONS) as Action[]).filter((a) => {
       const d = ACTIONS[a];
@@ -365,7 +366,7 @@ export class WardenBrain extends EnemyBrain {
     if ((this.ctx.spells?.active(this) ?? 0) === 0) this.endExclusive();
     // After one of his big powers he gives the player a longer breather.
     const big = this.lastAction ? ACTIONS[this.lastAction].power : false;
-    this.set('reposition'); this.decideIn = THREE.MathUtils.lerp(0.8, 1.3, this.rnd()) + (big ? 1.0 : 0);
+    this.set('reposition'); this.decideIn = THREE.MathUtils.lerp(0.4, 0.8, this.rnd()) + (big ? 0.5 : 0);
     void player; void now;
   }
   private endExclusive() {
