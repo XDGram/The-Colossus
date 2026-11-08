@@ -123,6 +123,34 @@ await p.evaluate((set) => {
       L.keep(); const w = L.boss(); L.face(w.effective());
       if (f === 4) L.bossDo('combo'); I.blockMouse = f > 8 && f < 60; if (f === 60) L.bossDo('teleport');
     }, cam(f) { const q = P.position, w = L.boss().effective(), m = q.clone().lerp(w, 0.5); return f < 60 ? [[m.x + 3.2, m.y + 1.4, m.z + 0.4], at(m, 1.2)] : orbit(q, 1.2 + f * 0.01, 4.2, 1.6, at(q, 1.1)); } };
+    // Establishing: a slow crane down into the empty courtyard at golden hour.
+    SH.temple = { n: 120, setup() { L.only([]); g.teleport(0, Z + 30); P.model.visible = false; }, act() { L.keep(); },
+      cam(f) { const k = f / 120, e = k * k * (3 - 2 * k); return [[-6 + 4 * e, 14 - 11.5 * e, Z + 12 - 6 * e], [0, 4 - 2.4 * e, Z - 30]]; } };
+    // Extreme close-up: the Warden, low angle, the camera creeping in.
+    SH.wface = { n: 75, setup() { P.model.visible = true; const w = L.boss(); L.only([w]); g.teleport(0, Z + 6); L.place(w, 0, Z - 2, 0); L.freeze(w, 'guard'); },
+      act() { L.keep(); }, cam(f) {
+        const o = L.boss().e.object.position, h = v(o.x, o.y + 1.62, o.z + 0.1), k = f / 75;   // his face, under the hat brim
+        return [[h.x + 0.32, h.y - 0.22, h.z + 0.95 - 0.25 * k], [h.x, h.y - 0.02, h.z]];
+      } };
+    // Close-up: the student charges the Colossus Rift — the blade lights up, motes spiral in; slow motion.
+    SH.riftcu = { n: 76, setup() {
+      g.abilities()?.reset(); P.model.visible = true; L.only([]); g.teleport(0, Z); P.setFacing(Math.PI); C.setDrawn(true);
+    }, act(f) { L.keep(); if (f === 2) I.injectSpirit('rift'); if (f === 66) I.injectSpirit('riftUp'); }, dt: (f) => (f < 66 ? 1 / 45 : 1 / 30),
+    cam(f) { const q = P.position, a = 2.2 + f * 0.008; return [[q.x + Math.sin(a) * 1.5, q.y + 1.25, q.z + Math.cos(a) * 1.5], at(q, 1.45)]; } };
+    // The turn, as the game does it: over the student's shoulder, the Warden raises his blade, the wind rises from
+    // him, dust streams past and the world darkens (the flash of light is added in the edit).
+    SH.turn2 = { n: 100, setup() {
+      P.model.visible = true; const w = L.boss(); L.only([w]); g.teleport(0, Z); P.setFacing(Math.PI); C.setDrawn(true);
+      L.place(w, 0, Z - 5.5, 0); L.freeze(w, 'raise');
+    }, act(f) { L.keep(); const k = Math.min(1, f / 92); g.post.dark = 0.9 * k * k; L.dust(0.4 + 1.4 * k, v(0, 0, 1)); },
+    cam(f) { const q = P.position, k = f / 100, s2 = 0.008 * k * Math.sin(f * 2.1); return [[q.x + 0.75 + s2, q.y + 1.75 + s2, q.z + 2.2 - 0.5 * k], [q.x - 0.15, q.y + 1.5, q.z - 5.5]]; } };
+    // The army: a low tracking shot along the Warden's soldiers, standing in ranks, ready.
+    SH.army = { n: 96, setup() {
+      P.model.visible = false; const rs = L.runners().slice(0, 3), k = L.brk(); L.only([...rs, k]); g.teleport(0, Z + 20);
+      rs.forEach((r, i) => { L.place(r, -2.6 + 2.0 * i + (i === 2 ? 2.2 : 0), Z - 3 - (i % 2) * 0.6, 0); L.calm(r); L.freeze(r, 'idle'); });
+      L.place(k, 0.6, Z - 4.2, 0); L.calm(k); L.freeze(k, 'guard');
+    }, act() { L.keep(); },
+    cam(f) { const k = f / 96; return [[-4.2 + 6.5 * k, P.position.y + 0.5, Z - 0.4], [-1.6 + 4.8 * k, P.position.y + 1.6, Z - 4]]; } };
     // The strike: lightning hits the Warden, he vanishes in smoke, his soldiers burst out of it.
     SH.strike = { n: 50, setup() {
       const w = L.boss(); L.only([w]); g.teleport(0, Z + 4); P.setFacing(Math.PI); L.place(w, 0, Z - 3, 0); L.freeze(w, 'guard');
@@ -164,6 +192,9 @@ await p.evaluate((set) => {
       const w = L.boss(); g.arena().bossCtx.spells?.clear(); C.reset?.(); g.teleport(68, 148 + dz / 2); P.setFacing(Math.PI); C.setDrawn(true);
       w.relocate(v(68, 0, 148 - dz / 2), 0); w.unleashed = true; w.choose = () => {};
     };
+    // Low-angle close-up in the valley: the Warden raising his blade against the sky, the Colossus faint beyond.
+    SH.vface = { n: 66, setup() { reset(9); L.freeze(L.boss(), 'raise'); }, act() { L.keep(); },
+      cam(f) { const w = L.boss().effective(), k = f / 66; return [[w.x + 0.9, w.y + 0.6, w.z + 2.3 - 0.4 * k], [w.x - 0.1, w.y + 2.1, w.z - 2]]; } };
     // Crane over the valley: the faint Colossus in the haze behind the two of them.
     SH.valley = { n: 78, setup() { reset(9); L.freeze(L.boss(), 'guard'); }, act() { L.keep(); },
       cam(f) { const k = f / 84, e = k * k * (3 - 2 * k), q = P.position; return [[q.x + 6 - 4 * e, q.y + 16 - 13 * e, q.z + 14 - 9 * e], [q.x, q.y + 2 - 0.6 * e, q.z - 30 + 20 * e]]; } };

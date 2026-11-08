@@ -36,11 +36,13 @@ def text(t, font, size, y, t0, t1, color='0xEDE5D2', fade=0.5):
 def clip(name, shot, start, count, grade='main', texts=(), fin=None, fout=None, white_in=0.0, white_out=0.0):
     """One shot: frames [start, start+count) at 30 fps, graded, grained, letterboxed into 1280x720."""
     d = count / 30
-    vf = [f'scale={W}:{BH}:flags=lanczos', GRADE[grade], 'noise=alls=7:allf=t', f'pad={W}:{H}:0:{(H - BH) // 2}:black', 'format=yuv420p']
+    vf = [f'scale={W}:{BH}:flags=lanczos', GRADE[grade], 'noise=alls=7:allf=t', 'format=yuv420p']
+    # Fades happen inside the picture; the letterbox bars stay black.
     if fin: vf.append(f'fade=t=in:st=0:d={fin}')
     if fout: vf.append(f'fade=t=out:st={d - fout:.3f}:d={fout}')
     if white_in: vf.append(f'fade=t=in:st=0:d={white_in}:color=white')
     if white_out: vf.append(f'fade=t=out:st={d - white_out:.3f}:d={white_out}:color=white')
+    vf.append(f'pad={W}:{H}:0:{(H - BH) // 2}:black')
     vf += [text(*t) for t in texts] + ['setsar=1', 'format=yuv420p']
     run(['-framerate', '30', '-start_number', str(start), '-i', f'{FR}/{shot}/%04d.jpg', '-frames:v', str(count),
          '-vf', ','.join(vf), '-r', '30', '-c:v', 'libx264', '-crf', '17', '-preset', 'medium', f'{WK}/{name}.mp4'])

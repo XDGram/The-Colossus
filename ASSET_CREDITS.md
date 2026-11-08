@@ -51,6 +51,15 @@ Original downloads are kept out of the repository (`assets-src/`, git-ignored). 
 | Rising rumble | Synthesised for this game (brown noise and a low sine sweep, ffmpeg) | — | Original | `riser.mp3` |
 | Storm wind | Synthesised for this game (pink and brown noise, filtered and gusting, ffmpeg) | — | Original | `wind.mp3` |
 
+## Reveal trailer music (not in the game)
+
+| Track | Source | Author | Licence | Used as |
+|---|---|---|---|---|
+| Adventure Theme Intro | [OpenGameArt](https://opengameart.org/content/adventure-intro-title-cinematic-epic) | nene | CC0 1.0 | The trailer's opening and build, up to the transition |
+| A Legend Will Rise | [OpenGameArt](https://opengameart.org/content/a-legend-will-rise-orchestral) | codemanu | CC0 1.0 | The valley section and the closing chords under the title |
+
+The trailer narration was recorded and supplied by the project owner.
+
 ## Supplied by the project owner
 
 - **Music:** `public/assets/audio/music.m4a` (temple) and `public/assets/audio/valley.m4a` (the Warden's realm),
